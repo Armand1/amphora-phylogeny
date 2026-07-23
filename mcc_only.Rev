@@ -1,0 +1,13 @@
+# Rebuild ONLY the MCC summary tree from an existing posterior of trees.
+# Use when the main run finished (.trees files are complete) but the mccTree
+# step was interrupted (e.g. an MPI rank killed at teardown, so no *_mcc.tree).
+#
+# Single process — do NOT launch with mpirun. See submit_mcc.pbs.
+
+BASE = "amphora-phylogeny"
+OUTPUT_DIR = BASE + "/output/simple_run"
+
+trace = readTreeTrace(OUTPUT_DIR + ".trees")          # reads the combined posterior
+mccTree(trace, file=(OUTPUT_DIR + "_mcc.tree"))       # writes simple_run_mcc.tree
+
+q()
