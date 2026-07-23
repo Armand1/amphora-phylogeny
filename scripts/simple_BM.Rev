@@ -1,0 +1,2 @@
+X ~ dnPhyloBrownianREML(fbd_tree, branchRates=sqrt(sigma2) )
+X.clamp(morpho)

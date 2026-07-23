@@ -1,0 +1,189 @@
+---
+title: "Three-clade amphora test tree — quick NJ look"
+subtitle: "pelike / loutrophoros / panathenaic, each spanning the Greece→Italy divide, rooted on deep geometric neck amphorae"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: paged
+params:
+  data_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/2026_amphora_297_types"
+  profile_file: "2026_amphora_297_types_profiles_with_metadata.csv"
+  taxa_file: "selected_taxa.csv"      # the 39 chosen types (from select_taxa.py)
+  n_pc: 20                            # fixed number of PCs to keep (NA => use var_target)
+  var_target: 0.95                    # used only when n_pc is NA
+  fig_w: 9
+  fig_h: 11
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = params$fig_w, fig.height = params$fig_h)
+library(ape); library(phangorn); library(ggtree); library(ggplot2)
+library(dplyr); library(tidyr)
+```
+
+## 1. Isolate the chosen taxa and build the coordinate matrix
+
+Each type is a closed 250-point outline (already Karcher-aligned and normalised,
+y in [-1.5, 1.5]). We stack the (x, y) coordinates into one 500-vector per type,
+so a "specimen" is its mean shape and the whole PCA is over the 39 selected types.
+
+```{r read}
+sel  <- read.csv(file.path(dirname(params$data_dir), "three_clade_tree", params$taxa_file),
+                 stringsAsFactors = FALSE)
+prof <- read.csv(file.path(params$data_dir, params$profile_file), stringsAsFactors = FALSE)
+
+# one tidy metadata row per selected type
+meta <- sel |>
+  transmute(type,
+            clade  = dplyr::recode(sub("_(greek|ital)$", "", group),
+                                   loutro = "loutrophoros", pan = "panathenaic",
+                                   outgroup = "neck (outgroup)"),
+            origin = ifelse(place == "greek_italiote", "Italiote", "Greek"),
+            role, date_earliest, date_latest,
+            mid    = (date_earliest + date_latest) / 2)
+
+stopifnot(all(meta$type %in% prof$type))
+
+# 39 x 500 coordinate matrix, points in fixed order
+coord <- prof |>
+  filter(type %in% meta$type) |>
+  arrange(type, point_order) |>
+  group_by(type) |>
+  summarise(v = list(c(x, y)), .groups = "drop")
+X <- do.call(rbind, coord$v); rownames(X) <- coord$type
+cat(sprintf("coordinate matrix: %d types x %d coords\n", nrow(X), ncol(X)))
+meta <- meta[match(rownames(X), meta$type), ]   # align metadata to X
+table(meta$clade, meta$origin)
+```
+
+## 2. PCA and how many PCs to keep
+
+Coordinates are all in the same (normalised) units, so we **centre but do not
+scale** — scaling would inflate the low-variance dimensions, which for aligned
+outlines are noise. We keep the fewest PCs whose cumulative variance reaches
+`var_target` (default 95%). Shape signal is known to concentrate in the first few
+PCs, so this should land around 5–8; the NJ topology below is checked for
+robustness to that choice.
+
+```{r pca}
+pca <- prcomp(X, center = TRUE, scale. = FALSE)
+ve  <- pca$sdev^2 / sum(pca$sdev^2)
+k   <- if (!is.na(params$n_pc)) params$n_pc else which(cumsum(ve) >= params$var_target)[1]
+cat(sprintf("keeping %d PCs (%.0f%% cumulative variance)\n", k, 100 * cumsum(ve)[k]))
+round(data.frame(PC = 1:10, var = ve[1:10], cum = cumsum(ve)[1:10]), 3)
+```
+
+```{r scree, fig.width=6, fig.height=3.2}
+ggplot(data.frame(PC = 1:15, cum = cumsum(ve)[1:15]), aes(PC, cum)) +
+  geom_hline(yintercept = params$var_target, linetype = 2, colour = "grey60") +
+  geom_vline(xintercept = k, linetype = 3, colour = "firebrick") +
+  geom_line() + geom_point() + theme_bw() +
+  labs(y = "cumulative variance", title = "Scree — cumulative variance explained")
+```
+
+## 3. Euclidean distance on the retained PCs → NJ tree
+
+Distance is Euclidean in the first `k` PC scores, kept in their natural variance
+scale (PC1 dominates, as it should — it is real shape variation, not noise). NJ,
+then rooted on the three deep geometric neck amphorae so the Greek→Italiote
+polarity reads left-to-right.
+
+```{r nj}
+scores <- pca$x[, 1:k, drop = FALSE]
+D   <- dist(scores)                        # Euclidean on k PCs
+tr  <- nj(D)
+og  <- meta$type[meta$role == "outgroup"]
+# root on the single OLDEST geometric neck (rooting on the 3-tip outgroup fails
+# when they aren't monophyletic — which is itself a finding, reported in §5).
+og_root <- meta$type[meta$role == "outgroup"][which.min(meta$mid[meta$role == "outgroup"])]
+root1 <- function(t) ladderize(root(t, outgroup = og_root, resolve.root = TRUE))
+cat(sprintf("outgroup necks monophyletic on raw NJ: %s  (rooting on oldest: %s)\n",
+            is.monophyletic(tr, og), og_root))
+tr  <- root1(tr)
+
+# quick topology-robustness check: does k change the tree?
+rf <- sapply(c(max(2, k - 2), k, k + 2, min(ncol(scores) + 10, 20)), function(kk){
+  kk <- min(kk, ncol(pca$x))
+  RF.dist(tr, root1(nj(dist(pca$x[, 1:kk, drop = FALSE]))), normalize = TRUE)
+})
+cat("normalised RF distance of the k-PC tree to trees at k-2, k, k+2, ~20 PCs:\n")
+print(round(rf, 2))
+```
+
+## 4. NJ tree with pot profiles at the tips
+
+Pots are filled by **clade** and their tip label coloured by **origin** (Greek vs
+Italiote). Profiles are drawn in an aligned column to the right so shapes are
+directly comparable regardless of branch length.
+
+```{r treeplot, fig.width=params$fig_w, fig.height=params$fig_h}
+pal_clade <- c(pelike = "#E69F00", loutrophoros = "#009E73",
+               panathenaic = "#56B4E9", `neck (outgroup)` = "#999999")
+pal_origin <- c(Greek = "grey20", Italiote = "#D55E00")
+
+g  <- ggtree(tr) %<+% meta + xlim(0, NA)
+xt <- max(g$data$x[g$data$isTip], na.rm = TRUE)         # align pots at this x
+gap <- 0.06 * xt
+tipxy <- g$data |> filter(isTip) |> select(label, ty = y)
+
+# aspect: 1 profile-y unit -> this many x units, for the given figure size
+k_asp <- (xt * 1.9 / ape::Ntip(tr)) * (params$fig_h / params$fig_w)
+sy <- 0.85 / 3; sx <- sy * k_asp
+
+pots <- prof |>
+  filter(type %in% tr$tip.label) |>
+  transmute(label = type, point_order, px = x, py = y) |>
+  left_join(tipxy, by = "label") |>
+  left_join(select(meta, label = type, clade, origin), by = "label") |>
+  arrange(label, point_order) |>
+  mutate(x = xt + gap + px * sx, y = ty + py * sy)
+
+lab <- meta |>
+  transmute(label = type, clade, origin,
+            txt = sprintf("%s  %s  %d BCE", origin,
+                          ifelse(role == "outgroup", "neck", as.character(clade)),
+                          -round(mid))) |>
+  left_join(tipxy, by = "label") |>
+  mutate(x = xt + gap + 2.3 * max(abs(prof$x)) * sx)
+
+g +
+  geom_tippoint(aes(colour = origin), size = 1.6) +
+  geom_polygon(data = pots, aes(x, y, group = label, fill = clade),
+               colour = "grey25", linewidth = 0.22) +
+  geom_text(data = lab, aes(x, ty, label = txt, colour = origin),
+            hjust = 0, size = 2.7) +
+  scale_fill_manual(values = pal_clade, name = "Clade") +
+  scale_colour_manual(values = pal_origin, name = "Origin") +
+  coord_cartesian(clip = "off") +
+  theme_tree2() +
+  theme(plot.margin = margin(6, 150, 6, 6)) +
+  labs(title = sprintf("NJ tree of 39 amphora types (Euclidean on %d PCs, %.0f%% var)",
+                       k, 100 * cumsum(ve)[k]),
+       subtitle = "fill = clade · label colour = origin · rooted on deep geometric neck amphorae")
+```
+
+## 5. Are the a-priori clades monophyletic?
+
+For each nominal clade, is it recovered as a monophyletic group on the NJ tree?
+(Outgroup excluded from the test.)
+
+```{r monophyly}
+for (cl in setdiff(unique(meta$clade), "neck (outgroup)")) {
+  tips <- meta$type[meta$clade == cl]
+  cat(sprintf("%-14s : %s (n=%d)\n", cl,
+              ifelse(is.monophyletic(tr, tips), "MONOPHYLETIC", "not monophyletic"),
+              length(tips)))
+}
+```
+
+## 6. PC1–PC2 morphospace (sanity check)
+
+```{r morpho, fig.width=6.5, fig.height=5}
+pcdf <- data.frame(scores[, 1:2], meta)
+ggplot(pcdf, aes(PC1, PC2, colour = clade, shape = origin)) +
+  geom_point(size = 3) +
+  scale_colour_manual(values = pal_clade) + theme_bw() +
+  labs(title = "Morphospace of the 39 selected types")
+```

@@ -1,0 +1,9 @@
+# RevBayes run output (regenerated on each run)
+output/*
+!output/.gitkeep
+
+# macOS / R cruft
+.DS_Store
+.Rhistory
+.Rproj.user
+*_cache/
