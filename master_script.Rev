@@ -23,8 +23,9 @@ taxa   <- readTaxonData(BASE + "/data/mini_taxa.tsv")
 for (i in 1:taxa.size()) { ages[i] = taxa[i].getMaxAge() }
 max_age = max(ages)
 
-# 10 PCs written to the .nex (98.9% of shape variance; the stable regime).
-trait <- 1:10
+# 20 PCs written to the .nex (99.9% of shape variance). Testing whether the extra
+# characters buy within-class resolution (10-PC run left within-class nodes < 0.5).
+trait <- 1:20
 morpho.excludeAll()
 morpho.includeCharacter( trait )
 

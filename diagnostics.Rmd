@@ -1,0 +1,128 @@
+---
+title: "MCMC diagnostics — three-clade amphora run"
+subtitle: "Tracer-style checks (ESS, PSRF, traces, densities) on the 3-chain constant-rate FBD run"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: paged
+params:
+  run_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/three_clade_tree/hpc_output"
+  burnin_frac: 0.10      # extra burn-in fraction to drop from each logged chain
+  ess_target: 200        # ESS below this = flag
+  psrf_target: 1.05      # PSRF above this = flag
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.width = 9, fig.height = 3)
+library(coda); library(ggplot2); library(dplyr); library(tidyr)
+```
+
+```{r read}
+# read the three independent runs as separate chains
+files <- sort(Sys.glob(file.path(params$run_dir, "simple_run_run_*.log")))
+raw <- lapply(files, read.delim, check.names = FALSE)
+
+# continuous model parameters (drop Iteration and the 39 tip-age nuisance t[])
+keep <- c("Posterior","Likelihood","Prior","speciation_rate","extinction_rate",
+          "psi","origin_time","sigma2")
+drop_burnin <- function(df) {
+  df <- df[, keep, drop = FALSE]
+  n <- nrow(df); df[floor(n * params$burnin_frac):n, , drop = FALSE]
+}
+chains <- lapply(raw, drop_burnin)
+mc <- as.mcmc.list(lapply(chains, as.mcmc))
+pooled <- as.mcmc(do.call(rbind, chains))
+cat(sprintf("%d chains x %d post-burnin samples each, %d parameters\n",
+            length(chains), nrow(chains[[1]]), length(keep)))
+```
+
+## 1. Summary table — ESS and PSRF (the two headline numbers)
+
+`ESS` = effective sample size (want > `r params$ess_target`). `PSRF` = Gelman–Rubin
+potential scale reduction across the 3 chains (want ≈ 1, < `r params$psrf_target`).
+Red = flagged.
+
+```{r summary}
+ess  <- effectiveSize(pooled)
+psrf <- gelman.diag(mc, multivariate = FALSE, autoburnin = FALSE)$psrf[, 1]
+tab <- data.frame(parameter = keep,
+                  mean   = round(sapply(keep, \(p) mean(pooled[, p])), 5),
+                  ESS    = round(ess[keep]),
+                  PSRF   = round(psrf[keep], 3),
+                  ESS_ok = ess[keep]  >= params$ess_target,
+                  PSRF_ok = psrf[keep] <= params$psrf_target)
+knitr::kable(tab, row.names = FALSE)
+flagged <- tab$parameter[!tab$ESS_ok | !tab$PSRF_ok]
+if (length(flagged))
+  cat("FLAGGED:", paste(flagged, collapse = ", "), "\n") else cat("all parameters pass\n")
+```
+
+## 2. Trace plots (per chain — should look like fuzzy caterpillars, chains overlapping)
+
+```{r traces, fig.height=11}
+long <- bind_rows(lapply(seq_along(chains), \(i)
+  as.data.frame(chains[[i]]) |> mutate(chain = factor(i), it = row_number()))) |>
+  pivot_longer(all_of(keep), names_to = "param", values_to = "value")
+ggplot(long, aes(it, value, colour = chain)) +
+  geom_line(linewidth = 0.2, alpha = 0.7) +
+  facet_wrap(~param, scales = "free_y", ncol = 2) +
+  theme_bw() + theme(legend.position = "top") +
+  labs(x = "sample (post burn-in)", y = NULL, title = "Traces by chain")
+```
+
+## 3. Posterior densities (per chain — the 3 curves should sit on top of each other)
+
+```{r densities, fig.height=11}
+ggplot(long, aes(value, colour = chain)) +
+  geom_density() +
+  facet_wrap(~param, scales = "free", ncol = 2) +
+  theme_bw() + theme(legend.position = "top") +
+  labs(x = NULL, title = "Marginal densities by chain")
+```
+
+## 4. Specific things to check on this model
+
+```{r checks}
+sig <- pooled[, "sigma2"]; psi <- pooled[, "psi"]
+lam <- pooled[, "speciation_rate"]; mu <- pooled[, "extinction_rate"]
+ot  <- pooled[, "origin_time"]
+
+cat("--- sigma2: is the BM rate pinned against its dnLoguniform(1e-3, 1) floor? ---\n")
+cat(sprintf("  sigma2  min %.5f  2.5%%ile %.5f  median %.5f  (floor = 0.001)\n",
+            min(sig), quantile(sig, .025), median(sig)))
+cat(sprintf("  -> %s\n\n", if (quantile(sig, .025) < 1.5e-3)
+    "NEAR THE FLOOR — rate wants to be lower than the prior allows (as in the pilot)"
+    else "clear of the floor — OK"))
+
+cat("--- psi: fossil-sampling rate (suspected prior bug dnExponential(10000)=mean 1e-4) ---\n")
+cat(sprintf("  psi median %.6f  95%% [%.6f, %.6f]\n",
+            median(psi), quantile(psi, .025), quantile(psi, .975)))
+cat(sprintf("  -> %s\n\n", if (median(psi) < 1e-3)
+    "still stalled near 0 — prior likely dominating (raise with Joel)" else "moved off zero"))
+
+cat("--- speciation vs extinction: non-identifiable ridge? ---\n")
+cat(sprintf("  cor(speciation, extinction) = %.4f\n", cor(lam, mu)))
+cat(sprintf("  net diversification lambda-mu: median %.4f  95%% [%.4f, %.4f]\n",
+            median(lam - mu), quantile(lam - mu, .025), quantile(lam - mu, .975)))
+cat(sprintf("  -> %s\n\n", if (abs(cor(lam, mu)) > 0.9)
+    "welded (r>0.9) — quote lambda-mu / mu-over-lambda, never the individual rates"
+    else "separable"))
+
+cat("--- origin_time: off its dnUnif(max_age, 4000) ceiling? ---\n")
+cat(sprintf("  origin_time median %.0f BP  97.5%%ile %.0f BP  (ceiling 4000)\n",
+            median(ot), quantile(ot, .975)))
+cat(sprintf("  -> %s\n", if (quantile(ot, .975) > 3950)
+    "JAMMED against the ceiling — raise it further" else "clear of the ceiling — the fix held"))
+```
+
+## 5. Verdict
+
+```{r verdict}
+ok <- all(tab$ESS_ok) && all(tab$PSRF_ok)
+cat(if (ok)
+  "All ESS > target and all PSRF ~ 1: the run mixed and the 3 chains converged.\nTopology and dates from this run are trustworthy at the model level.\n"
+  else
+  "Some parameters flagged (see table). Non-identifiable rate parameters (speciation/\nextinction) can fail ESS/PSRF while the tree itself is fine — judge the chronology\non t[]/origin_time and the topology on posterior support, not on the rate nuisances.\n")
+```

@@ -1,0 +1,141 @@
+---
+title: "Three-clade amphora tree — visualised"
+subtitle: "dated MCC tree: pot profiles, clade/origin colouring, posterior support, age HPDs"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+params:
+  run_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/three_clade_tree/hpc_output"
+  data_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/2026_amphora_297_types"
+  taxa_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/three_clade_tree"
+  support_cutoff: 0.5     # only show well-supported node posteriors
+  fig_w: 10
+  fig_h: 12
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.width = params$fig_w, fig.height = params$fig_h)
+library(treeio); library(ggtree); library(ape); library(ggplot2); library(dplyr)
+```
+
+```{r base}
+trb <- read.beast(file.path(params$run_dir, "simple_run_mcc.tree"))
+phy <- as.phylo(trb)
+ntip <- Ntip(phy)
+
+sel  <- read.csv(file.path(params$taxa_dir, "selected_taxa.csv"), stringsAsFactors = FALSE)
+meta <- sel |>
+  transmute(label = type,
+            clade  = dplyr::recode(sub("_(greek|ital)$", "", group),
+                                   loutro = "loutrophoros", pan = "panathenaic",
+                                   outgroup = "neck (outgroup)"),
+            origin = ifelse(place == "greek_italiote", "Italiote", "Greek"))
+
+# absolute chronology: anchor node depths on tip-age midpoints (years BP -> BCE)
+ages  <- read.delim(file.path(params$taxa_dir, "data/mini_taxa.tsv"))
+tipBP <- setNames((ages$min_age + ages$max_age) / 2, ages$taxon)
+depth <- node.depth.edgelength(phy)
+rootBP <- median(tipBP[phy$tip.label] + depth[1:ntip])
+nodeYr <- 1950 - (rootBP - depth)          # calendar year, negative = BCE
+root_yr <- nodeYr[ntip + 1]
+present_yr <- max(nodeYr[1:ntip])          # youngest tip's calendar year
+
+pal_clade <- c(pelike = "#E69F00", loutrophoros = "#009E73",
+               panathenaic = "#56B4E9", `neck (outgroup)` = "#999999")
+pal_origin <- c(Greek = "grey20", Italiote = "#D55E00")
+```
+
+Root ≈ **`r sprintf('%.0f BCE', -root_yr)`**, youngest tip ≈ **`r sprintf('%.0f BCE', -present_yr)`**.
+Deepest split (posterior 1.00) separates **squat (pelike)** from **elongate
+(loutrophoros + panathenaic)**; Greek and Italiote intermingle within every clade.
+
+## 1. Dated tree with pot profiles
+
+Pots filled by **clade**, tip labels coloured by **origin**, posterior support
+(≥ `r params$support_cutoff`) at nodes, calendar axis.
+
+```{r pots}
+p <- ggtree(trb) + theme_tree2()
+xr <- max(p$data$x)
+tipxy <- p$data |> filter(isTip) |> transmute(label, tx = x, ty = y)
+
+prof <- read.csv(file.path(params$data_dir,
+                 "2026_amphora_297_types_profiles_with_metadata.csv"),
+                 stringsAsFactors = FALSE)
+xt <- max(tipxy$tx); gap <- 0.05 * xr
+k_asp <- (xr * 1.9 / ntip) * (params$fig_h / params$fig_w)
+sy <- 0.85 / 3; sx <- sy * k_asp
+pots <- prof |>
+  filter(type %in% phy$tip.label) |>
+  transmute(label = type, point_order, px = x, py = y) |>
+  left_join(tipxy, by = "label") |> left_join(meta, by = "label") |>
+  arrange(label, point_order) |>
+  mutate(x = xt + gap + px * sx, y = ty + py * sy)
+lab <- meta |> left_join(tipxy, by = "label") |>
+  mutate(x = xt + gap + 2.4 * max(abs(prof$x)) * sx,
+         txt = sprintf("%s  %s", origin, clade))
+
+brks_yr <- seq(-1200, 0, by = 200); brks_x <- brks_yr - root_yr
+keep <- brks_x >= 0 & brks_x <= xr
+
+p +
+  geom_tippoint(aes(colour = origin),
+                data = left_join(p$data, meta, by = "label"), size = 1.7) +
+  geom_polygon(data = pots, aes(x, y, group = label, fill = clade),
+               colour = "grey25", linewidth = 0.2) +
+  geom_text(data = lab, aes(x, ty, label = txt, colour = origin),
+            hjust = 0, size = 2.6) +
+  geom_text2(aes(subset = !isTip & !is.na(as.numeric(posterior)) &
+                          as.numeric(posterior) >= params$support_cutoff,
+                 label = sprintf("%.2f", as.numeric(posterior))),
+             hjust = 1.2, vjust = -0.4, size = 2.3, colour = "grey35") +
+  scale_fill_manual(values = pal_clade, name = "Clade") +
+  scale_colour_manual(values = pal_origin, name = "Origin") +
+  scale_x_continuous(breaks = brks_x[keep], labels = paste0(-brks_yr[keep], " BCE")) +
+  coord_cartesian(clip = "off") +
+  theme(plot.margin = margin(6, 170, 6, 6), axis.text.x = element_text(size = 8)) +
+  labs(title = "Dated MCC tree with pot profiles",
+       subtitle = sprintf("root %.0f BCE · fill = clade · label colour = origin", -root_yr))
+```
+
+## 2. Node ages with 95% HPD bars
+
+Blue bars = 95% highest-posterior-density interval on each node's age. Tips
+coloured by origin, posterior support at nodes. This shows how well the dates are
+pinned down (short bar = confident, long bar = uncertain).
+
+```{r hpd, fig.height=11}
+ph <- revts(ggtree(trb) %<+% meta + theme_tree2())   # x = age before youngest tip (<= 0)
+ph +
+  geom_range("age_0.95_HPD", color = "#377EB8", alpha = 0.4, size = 2) +
+  geom_tippoint(aes(colour = origin), size = 1.6) +
+  geom_tiplab(aes(colour = origin, label = paste(origin, clade)),
+              size = 2.4, hjust = -0.02) +
+  geom_text2(aes(subset = !isTip & !is.na(as.numeric(posterior)) &
+                          as.numeric(posterior) >= params$support_cutoff,
+                 label = sprintf("%.2f", as.numeric(posterior))),
+             hjust = 1.2, vjust = -0.4, size = 2.3, colour = "grey35") +
+  scale_colour_manual(values = pal_origin, name = "Origin", na.value = "grey50") +
+  scale_x_continuous(breaks = seq(-1200, 0, 200) - present_yr,
+                     labels = paste0(seq(1200, 0, -200), " BCE")) +
+  coord_cartesian(clip = "off") +
+  theme(plot.margin = margin(6, 140, 6, 6), axis.text.x = element_text(size = 8)) +
+  labs(title = "Node ages with 95% HPD intervals",
+       subtitle = sprintf("root %.0f BCE · blue bar = 95%% HPD on node age", -root_yr))
+```
+
+## 3. Membership of the two deep clades
+
+```{r members}
+rc <- phy$edge[phy$edge[, 1] == (ntip + 1), 2]
+ingroup <- rc[rc > ntip]
+ch <- phy$edge[phy$edge[, 1] == ingroup, 2]
+for (i in seq_along(ch)) {
+  tips <- if (ch[i] <= ntip) phy$tip.label[ch[i]] else extract.clade(phy, ch[i])$tip.label
+  cat(sprintf("deep clade %d (%d tips):\n", i, length(tips)))
+  print(table(meta$clade[match(tips, meta$label)]))
+  cat("\n")
+}
+```

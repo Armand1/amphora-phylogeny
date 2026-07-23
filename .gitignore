@@ -7,3 +7,6 @@ output/*
 .Rhistory
 .Rproj.user
 *_cache/
+
+# pulled HPC results (large; regenerated per run)
+hpc_output*/
