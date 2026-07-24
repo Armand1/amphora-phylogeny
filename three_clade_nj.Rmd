@@ -7,7 +7,8 @@ output:
     toc_float: true
     df_print: paged
 params:
-  data_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/2026_amphora_297_types"
+  data_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/Making amphora types/05_2026_amphora_297_types"
+  taxa_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/phylogenies/2026_07_three_clade_tree"
   profile_file: "2026_amphora_297_types_profiles_with_metadata.csv"
   taxa_file: "selected_taxa.csv"      # the 39 chosen types (from select_taxa.py)
   n_pc: 20                            # fixed number of PCs to keep (NA => use var_target)
@@ -30,8 +31,7 @@ y in [-1.5, 1.5]). We stack the (x, y) coordinates into one 500-vector per type,
 so a "specimen" is its mean shape and the whole PCA is over the 39 selected types.
 
 ```{r read}
-sel  <- read.csv(file.path(dirname(params$data_dir), "three_clade_tree", params$taxa_file),
-                 stringsAsFactors = FALSE)
+sel  <- read.csv(file.path(params$taxa_dir, params$taxa_file), stringsAsFactors = FALSE)
 prof <- read.csv(file.path(params$data_dir, params$profile_file), stringsAsFactors = FALSE)
 
 # one tidy metadata row per selected type

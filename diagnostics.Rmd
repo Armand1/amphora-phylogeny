@@ -7,7 +7,7 @@ output:
     toc_float: true
     df_print: paged
 params:
-  run_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/three_clade_tree/hpc_output"
+  run_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/phylogenies/2026_07_three_clade_tree/runs/20pc/output"
   burnin_frac: 0.10      # extra burn-in fraction to drop from each logged chain
   ess_target: 200        # ESS below this = flag
   psrf_target: 1.05      # PSRF above this = flag

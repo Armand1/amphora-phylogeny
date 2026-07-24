@@ -1,62 +1,67 @@
 # Three-clade amphora test tree
 
-A purpose-built RevBayes tree to test the **Athens → Italy rate hypothesis**:
-when Athenian potters moved to Italy, did every vessel class undergo rapid shape
-change? Three distinctive classes, each present on both sides of the divide, give
-three independent replicates of "tradition transplanted."
+RevBayes FBD tree testing the **Athens → Italy rate hypothesis**: three
+distinctive vessel classes (pelike / loutrophoros / panathenaic), each present on
+both sides of the divide, rooted on deep geometric neck amphorae. 39 tips.
 
-## Taxa (39 tips)
+This folder is a git repo. On the HPC it is cloned as `amphora-phylogeny` and the
+PBS scripts reference paths like `amphora-phylogeny/master_script.Rev` — so the
+**model-source files must stay at the repo root** (do not move them into subfolders).
 
-| clade | Greek | Italiote | role |
-|---|---|---|---|
-| pelike | 6 | 6 | test |
-| loutrophoros | 6 | 6 | test |
-| panathenaic (amphora) | 6 | 6 | test |
-| deep geometric neck amphorae | 3 | — | outgroup (roots tree + polarises geography) |
+## Layout
 
-Selected by farthest-point sampling within each place×class subgroup on the
-Karcher-SRVF distance matrix (`select_taxa.py` → `selected_taxa.csv`). Ages span
-−1040 to −100 BCE; classes overlap in time across the divide, so geography is not
-confounded with age.
+```
+├── master_script.Rev        top-level model (edit `trait <- 1:N` for PC count)
+├── mcc_only.Rev             rebuild MCC tree if the summary step was interrupted
+├── submit_hpc.pbs           HPC job: the full MCMC
+├── submit_mcc.pbs           HPC job: MCC-tree rebuild only (single process)
+├── scripts/                 FBD.Rev · strict_clock.Rev · simple_BM.Rev
+├── data/                    mini_character.nex (39 × N PCs) · mini_taxa.tsv (ages, BP)
+├── output/                  HPC writes here at runtime (git-empty)
+│
+├── make_revbayes_data.R     profiles → data/*.nex + *.tsv  (arg = #PCs, default 10)
+├── select_taxa.py           farthest-point taxon selection → selected_taxa.csv
+├── selected_taxa.csv        the 39 chosen types
+│
+├── three_clade_nj.Rmd       pre-analysis: PCA + naive NJ tree (PC-independent)
+├── diagnostics.Rmd          Tracer-style MCMC diagnostics for a run
+├── tree_plots.Rmd           dated tree with pot profiles + HPD bars
+│
+├── prep/                    one-off prep artifacts (NJ html, sub distance matrix)
+└── runs/                    RESULTS, one folder per run (local only, git-ignored)
+    ├── 10pc/  output/ · plots/ · *.html
+    └── 20pc/  output/ · plots/
+```
 
-## Quick NJ look (before the dated model)
+`runs/` and all `*.html` are git-ignored: they are regenerated, not source. The
+git repo carries only the model + the notebooks that produce the results.
 
-`three_clade_nj.Rmd` → `three_clade_nj.html`. PCA of the 39 aligned outlines:
-PC1 = 67.6% (squatness), 10 PCs = 98.9%, 20 PCs = 99.9% (saturated). On a naive
-NJ tree **no class is monophyletic** at any PC count (5/10/20), and the topology
-is fully stable by 20 PCs. Loutrophoros comes closest (4 interlopers);
-panathenaics and pelikes are dispersed. Conclusion: model-free shape distance
-cannot recover the classes — the test is whether **FBD + tip-dates + BM** can.
+## Workflow
 
-## RevBayes files
+1. **Build data** (choose PC count; also set `trait <- 1:N` in `master_script.Rev`):
+   ```bash
+   Rscript make_revbayes_data.R 20
+   git add -A && git commit -m "20 PCs" && git push
+   ```
+2. **Run on HPC** (see `../../notes/HPC_idiots_guide.md` for the full walk-through):
+   ```bash
+   cd ~/GitHub/amphora-phylogeny && git pull
+   cd ~/GitHub && qsub amphora-phylogeny/submit_hpc.pbs
+   qsub amphora-phylogeny/submit_mcc.pbs      # after it finishes, rebuilds the MCC tree
+   ```
+3. **Pull results back** into the matching run folder (run in a Mac terminal):
+   ```bash
+   scp -r amleroi@login.cx3.hpc.imperial.ac.uk:'~/GitHub/amphora-phylogeny/output' \
+         runs/20pc/output
+   ```
+4. **Analyse**: render `diagnostics.Rmd` and `tree_plots.Rmd` with `run_dir` set to
+   `runs/<pc>/output` (output the html/plots into that run folder).
 
-- `data/mini_character.nex` — 39 tips × 10 continuous characters (coordinate-PCA
-  scores of the aligned outlines). Regenerate with a different PC count via
-  `Rscript make_revbayes_data.R 20`.
-- `data/mini_taxa.tsv` — min/max tip ages in years BP, datum 1950
-  (`min_age = 1950 − date_latest`, `max_age = 1950 − date_earliest`).
-- `master_script.Rev` — constant-rate FBD + strict clock + BM on the 10 PCs.
-  Edit `BASE` for the run location. Produces `output/simple_run*.{log,trees}`
-  and `output/simple_run_mcc.tree`.
-- `scripts/FBD.Rev`, `strict_clock.Rev`, `simple_BM.Rev` — model modules.
+## Status (2026-07-24)
 
-### Changes from the pilot's model
-- `trait <- 1:10` (this tree has 10 PCs, not 65).
-- **`origin_time` ceiling raised 3100 → 4000 BP.** In the 65-PC pilot the root
-  jammed against the 3100 cap and the chronology broke; our oldest tip is 2990 BP.
-- `psi` / `lambda` priors left at the pilot values but flagged in `FBD.Rev`
-  (suspected Myr-scale priors on year-scale data — raise with Joel).
-
-### Character basis caveat
-The characters are **coordinate-PCA** of the Karcher-aligned outlines, computed on
-just these 39 types — self-consistent with the NJ analysis but a *different basis*
-from the pilot's SRVF-tPCA. Fine for this standalone test; if we later want strict
-cross-registration with the pilot or other trees, recompute through the SRVF-tPCA
-pipeline.
-
-## Workflow (as for the pilot)
-1. Run `master_script.Rev` in RevBayes → constant-rate MCC tree + posterior trees.
-2. Diagnostics in Tracer (ESS/PSRF, watch `origin_time`, `psi`, `sigma2`).
-3. Apply relaxed (UCLN) branch rates on the fixed topology (separate step).
-4. Tempo pipeline: geography ASR → classify intervals → transplant-branch rate
-   test across the three clades (see `../Tempo methodology …md`).
+- **10-PC run complete.** Deepest split (posterior 1.00) = squat (pelike) vs
+  elongate (loutrophoros + panathenaic merged); Greek & Italiote intermingle
+  within every clade. Diagnostics clean; sigma2 off the floor; root ≈ 1281 BCE.
+  Within-class nodes < 0.5 support (near-identical shapes → genuinely unresolvable).
+- **20-PC run** in progress, to test whether more characters buy within-class
+  resolution or whether it is a hard limit of the data.

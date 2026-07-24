@@ -1,6 +1,6 @@
 import numpy as np, pandas as pd
 
-BASE="/Users/armandleroi/Documents/Amphora_phylogeny/2026_amphora_297_types"
+BASE="/Users/armandleroi/Documents/Amphora_phylogeny/Making amphora types/05_2026_amphora_297_types"
 z=np.load(f"{BASE}/datafiles/karcher_distmat.npz", allow_pickle=True)
 tn=[str(x) for x in z['type_name']]; Da=z['Da']
 idx={n:i for i,n in enumerate(tn)}

@@ -15,8 +15,8 @@ suppressMessages({library(dplyr)})
 
 args   <- commandArgs(trailingOnly = TRUE)
 N_PC   <- if (length(args)) as.integer(args[1]) else 10
-HERE   <- "/Users/armandleroi/Documents/Amphora_phylogeny/three_clade_tree"
-DATA   <- "/Users/armandleroi/Documents/Amphora_phylogeny/2026_amphora_297_types"
+HERE   <- "/Users/armandleroi/Documents/Amphora_phylogeny/phylogenies/2026_07_three_clade_tree"
+DATA   <- "/Users/armandleroi/Documents/Amphora_phylogeny/Making amphora types/05_2026_amphora_297_types"
 OUT    <- file.path(HERE, "data"); dir.create(OUT, showWarnings = FALSE)
 
 sel  <- read.csv(file.path(HERE, "selected_taxa.csv"), stringsAsFactors = FALSE)

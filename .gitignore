@@ -1,12 +1,13 @@
-# RevBayes run output (regenerated on each run)
+# RevBayes run output (HPC writes here at runtime; regenerated each run)
 output/*
 !output/.gitkeep
+
+# local pulled results + rendered notebooks (large; regenerated, not source)
+runs/
+*.html
 
 # macOS / R cruft
 .DS_Store
 .Rhistory
 .Rproj.user
 *_cache/
-
-# pulled HPC results (large; regenerated per run)
-hpc_output*/

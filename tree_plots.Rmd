@@ -6,9 +6,9 @@ output:
     toc: true
     toc_float: true
 params:
-  run_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/three_clade_tree/hpc_output"
-  data_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/2026_amphora_297_types"
-  taxa_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/three_clade_tree"
+  run_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/phylogenies/2026_07_three_clade_tree/runs/20pc/output"
+  data_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/Making amphora types/05_2026_amphora_297_types"
+  taxa_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/phylogenies/2026_07_three_clade_tree"
   support_cutoff: 0.5     # only show well-supported node posteriors
   fig_w: 10
   fig_h: 12
