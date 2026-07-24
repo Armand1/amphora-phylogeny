@@ -49,11 +49,11 @@ for t in newi: add(t,'pelike_ital','test')
 # OUTGROUP: keep the same 3 deep geometric necks
 for t in old[old.role=='outgroup'].type: add(t,'outgroup','outgroup')
 
-big=pd.DataFrame(rows).drop_duplicates('type')
-big.to_csv(f"{TREE}/selected_taxa_big.csv", index=False)
+sel77=pd.DataFrame(rows).drop_duplicates('type')
+sel77.to_csv(f"{TREE}/selected_taxa_77taxon.csv", index=False)
 
-big['cls']=big.type.map(cls)
+sel77['cls']=sel77.type.map(cls)
 print("=== BIG dataset composition ===")
-print(pd.crosstab(big.cls, big.place, margins=True))
-print(f"\nTOTAL: {len(big)} taxa")
-print(f"supersets the current 39? {used.issubset(set(big.type))}")
+print(pd.crosstab(sel77.cls, sel77.place, margins=True))
+print(f"\nTOTAL: {len(sel77)} taxa")
+print(f"supersets the current 39? {used.issubset(set(sel77.type))}")

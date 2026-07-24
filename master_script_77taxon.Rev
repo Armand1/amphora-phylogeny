@@ -9,10 +9,10 @@
 # concurrently with the 20-PC job without collision.
 # =============================================================================
 BASE = "amphora-phylogeny"
-OUTPUT_DIR = BASE + "/output/simple_run_big"
+OUTPUT_DIR = BASE + "/output/simple_run_77taxon"
 
-morpho <- readContinuousCharacterData(BASE + "/data/mini_character_big_srvf_38.nex")
-taxa   <- readTaxonData(BASE + "/data/mini_taxa_big.tsv")
+morpho <- readContinuousCharacterData(BASE + "/data/mini_character_77taxon_srvf_38.nex")
+taxa   <- readTaxonData(BASE + "/data/mini_taxa_77taxon.tsv")
 
 for (i in 1:taxa.size()) { ages[i] = taxa[i].getMaxAge() }
 max_age = max(ages)

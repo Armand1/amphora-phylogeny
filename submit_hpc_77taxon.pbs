@@ -1,18 +1,18 @@
 #!/bin/sh
 #PBS -l walltime=24:00:00
 #PBS -l select=1:ncpus=16:mem=20gb
-#PBS -N amphora_big77
+#PBS -N amphora_77tax
 
 # Adapted from Joel's simple_model submission script.
 # Assumes this repo was cloned to $HOME/GitHub/amphora-phylogeny, i.e.
 #   cd $HOME/GitHub && git clone https://github.com/Armand1/amphora-phylogeny.git
 # We cd to the PARENT (GitHub) and use folder-prefixed paths, so the paths here
-# match BASE = "amphora-phylogeny" inside master_script_big.Rev.
+# match BASE = "amphora-phylogeny" inside master_script_77taxon.Rev.
 
 cd "$HOME/GitHub" || { echo "ERROR: cd $HOME/GitHub failed"; exit 1; }
 mkdir -p "amphora-phylogeny/output"
 
-LOGFILE="amphora-phylogeny/output/logfile_big.log"
+LOGFILE="amphora-phylogeny/output/logfile_77taxon.log"
 PROGRAM="$HOME/revbayes/projects/cmake/build-mpi/rb-mpi"
 
 # Fail early with a clear message if the RevBayes binary isn't where we expect.
@@ -28,9 +28,9 @@ module load tools/prod
 module load OpenMPI
 module load GCC/14.3.0
 
-# master_script_big.Rev uses mcmcmc(nchains=5, nruns=3) = 15 chains -> 16 MPI ranks.
+# master_script_77taxon.Rev uses mcmcmc(nchains=5, nruns=3) = 15 chains -> 16 MPI ranks.
 mpirun -np 16 --map-by :OVERSUBSCRIBE ${PROGRAM} \
-       "amphora-phylogeny/master_script_big.Rev" >> ${LOGFILE} 2>&1
+       "amphora-phylogeny/master_script_77taxon.Rev" >> ${LOGFILE} 2>&1
 
 duration=$SECONDS
 hrs=$(($duration / 3600)); min=$(($(($duration % 3600))/60)); sec=$(($duration % 60))

@@ -9,15 +9,15 @@ output:
 params:
   # This is the BIG 77-taxon sibling.
   # and title. Edit both if you change the analysis.
-  run_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/phylogenies/2026_07_three_clade_tree/runs/big/output"
+  run_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/phylogenies/2026_07_three_clade_tree/runs/77taxon/output"
   repo_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/phylogenies/2026_07_three_clade_tree"
   data_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/Making amphora types/05_2026_amphora_297_types"
-  tree_file: "simple_run_big_mcc.tree"
-  log_file: "simple_run_big.log"
-  trees_file: "simple_run_big.trees"
-  pc_file: "data/mini_character_big_srvf_38.nex"
-  taxa_file: "data/mini_taxa_big.tsv"
-  selected_file: "selected_taxa_big.csv"
+  tree_file: "simple_run_77taxon_mcc.tree"
+  log_file: "simple_run_77taxon.log"
+  trees_file: "simple_run_77taxon.trees"
+  pc_file: "data/mini_character_77taxon_srvf_38.nex"
+  taxa_file: "data/mini_taxa_77taxon.tsv"
+  selected_file: "selected_taxa_77taxon.csv"
   profile_file: "2026_amphora_297_types_profiles_with_metadata.csv"
   bp_zero: 1950
   pot_offset: 0.03

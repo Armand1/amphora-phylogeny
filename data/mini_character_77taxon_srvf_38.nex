@@ -1,5 +1,5 @@
 #NEXUS
-[SRVF tPCA 77-taxon, make_srvf_data_big.py]
+[SRVF tPCA 77-taxon, make_srvf_data_77taxon.py]
 BEGIN DATA;
   DIMENSIONS NTAX=77 NCHAR=38;
   FORMAT DATATYPE=CONTINUOUS MISSING=? GAP=- INTERLEAVE=NO;
