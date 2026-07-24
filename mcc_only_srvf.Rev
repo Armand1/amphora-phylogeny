@@ -1,0 +1,7 @@
+# Rebuild ONLY the 38-PC MCC tree (single process). Run after master_script_38
+# if the mccTree step was killed at MPI teardown. See submit_mcc_38.pbs.
+BASE = "amphora-phylogeny"
+OUTPUT_DIR = BASE + "/output/simple_run_srvf20PC"
+trace = readTreeTrace(OUTPUT_DIR + ".trees")
+mccTree(trace, file=(OUTPUT_DIR + "_mcc.tree"))
+q()
