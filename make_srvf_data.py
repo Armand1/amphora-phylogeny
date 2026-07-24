@@ -32,7 +32,8 @@ obj = fdacurve(beta, mode='O', N=beta.shape[1], scale=False)
 obj.karcher_mean(rotation=False)
 obj.srvf_align(rotation=False)
 obj.shape_pca(no=max(N_PC, 20))
-S = np.asarray(obj.coef)[:, :N_PC]                       # (39, N_PC) tangent-PCA scores
+S = np.asarray(obj.coef).T[:, :N_PC]                     # coef is (n_comp, n_curves) -> (39, N_PC)
+assert S.shape[0] == len(types), f"row count {S.shape[0]} != {len(types)} taxa"
 ve = np.asarray(obj.s); ve = ve / ve.sum()
 print(f"SRVF tangent-PCA: {N_PC} PCs, {100*np.cumsum(ve)[N_PC-1]:.2f}% cumulative variance "
       f"(PC1 alone {100*ve[0]:.1f}%)")
