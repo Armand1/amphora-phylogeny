@@ -49,7 +49,8 @@ writeLines(c("#NEXUS",
 pad <- max(nchar(rownames(S))) + 4
 for (t in rownames(S))
   writeLines(sprintf("    %-*s%s", pad, t,
-                     paste(format(S[t, ], digits = 15), collapse = "\t")), con)
+                     # fixed-point only: RevBayes' NEXUS reader rejects 1.2e-03 etc.
+                     paste(formatC(S[t, ], format = "f", digits = 12), collapse = "\t")), con)
 writeLines(c("  ;", "END;"), con); close(con)
 
 ## --- write taxa TSV (min/max age, BP, datum 1950) --------------------------
