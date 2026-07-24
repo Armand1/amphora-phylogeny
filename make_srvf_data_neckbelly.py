@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""make_srvf_data_77taxon.py -- SRVF tangent-PCA characters + ages for the neckbelly set.
+"""make_srvf_data_neckbelly.py -- SRVF tangent-PCA characters + ages for the neckbelly set.
 Self-contained sibling of make_srvf_data.py (reads selected_taxa_neckbelly.csv, writes both
 the NEXUS and the taxa TSV). Same fdasrsf settings (mode='O', no scale/rotation).
-Run: python3 make_srvf_data_77taxon.py 38
+Run: python3 make_srvf_data_neckbelly.py 38
 """
 import sys, os, numpy as np, pandas as pd
 from fdasrsf.curve_stats import fdacurve
@@ -30,7 +30,7 @@ os.makedirs(f"{HERE}/data", exist_ok=True)
 nex = f"{HERE}/data/mini_character_neckbelly_srvf_{N_PC}.nex"
 pad = max(len(t) for t in types) + 4
 with open(nex, "w") as f:
-    f.write("#NEXUS\n[SRVF tPCA neckbelly, make_srvf_data_77taxon.py]\nBEGIN DATA;\n")
+    f.write("#NEXUS\n[SRVF tPCA neckbelly, make_srvf_data_neckbelly.py]\nBEGIN DATA;\n")
     f.write(f"  DIMENSIONS NTAX={len(types)} NCHAR={N_PC};\n")
     f.write("  FORMAT DATATYPE=CONTINUOUS MISSING=? GAP=- INTERLEAVE=NO;\n  MATRIX\n")
     for t, row in zip(types, S):

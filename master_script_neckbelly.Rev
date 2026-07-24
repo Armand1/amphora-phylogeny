@@ -1,12 +1,11 @@
 # =============================================================================
-# Three-clade amphora tree — SRVF (elastic) tangent-PCA characters, 121-taxon neck+belly amphora tree (+anchors), 38 tPCs. Blind: ALL neck + ALL belly.
-# "Where does it stop" endpoint: 38 PCs = 100% of variance, but the dims beyond
-# ~20 hold only ~0.12% (near-identical-pot noise). Expected: no within-class
-# resolution gain, and sigma2 dragged toward its floor (one BM rate diluted over
-# many noise characters, as in the 65-PC pilot).
-#
-# Parallel/additive config: separate charfile + output name so it can run
-# concurrently with the 20-PC job without collision.
+# 121-taxon neck + belly amphora tree (SRVF elastic tangent-PCA, 38 tPCs).
+# Blind sample: ALL 84 neck + ALL 25 belly amphorae (zero input selection) +
+# 12 fixed reference anchors (4 each pelike / panathenaic / loutrophoros).
+# Self-roots on the deep Geometric Greek necks; no external outgroup.
+# The stress test: does the phylogeny hold with the numerous, morphologically
+# incoherent amphorae proper? Clades -> data-driven "neck type A/B" typology.
+# 200k generations (bigger tree); output simple_run_neckbelly.*.
 # =============================================================================
 BASE = "amphora-phylogeny"
 OUTPUT_DIR = BASE + "/output/simple_run_neckbelly"

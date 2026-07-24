@@ -1,5 +1,5 @@
 #NEXUS
-[SRVF tPCA neckbelly, make_srvf_data_77taxon.py]
+[SRVF tPCA neckbelly, make_srvf_data_neckbelly.py]
 BEGIN DATA;
   DIMENSIONS NTAX=121 NCHAR=38;
   FORMAT DATATYPE=CONTINUOUS MISSING=? GAP=- INTERLEAVE=NO;
