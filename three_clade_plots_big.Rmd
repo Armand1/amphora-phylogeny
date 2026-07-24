@@ -1,0 +1,373 @@
+---
+title: "Three-clade amphora tree — full analysis (77-taxon SRVF-38 (all loutro+pan, densified pelikes))"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    fig_width: 9
+    fig_height: 6
+params:
+  # This is the BIG 77-taxon sibling.
+  # and title. Edit both if you change the analysis.
+  run_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/phylogenies/2026_07_three_clade_tree/runs/big/output"
+  repo_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/phylogenies/2026_07_three_clade_tree"
+  data_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/Making amphora types/05_2026_amphora_297_types"
+  tree_file: "simple_run_big_mcc.tree"
+  log_file: "simple_run_big.log"
+  trees_file: "simple_run_big.trees"
+  pc_file: "data/mini_character_big_srvf_38.nex"
+  taxa_file: "data/mini_taxa_big.tsv"
+  selected_file: "selected_taxa_big.csv"
+  profile_file: "2026_amphora_297_types_profiles_with_metadata.csv"
+  bp_zero: 1950
+  pot_offset: 0.03
+  pot_height: 0.85
+  pot_stretch: 1.0
+  fig_w: 10
+  fig_h: 12
+  burnin: 0.10
+  hpd_thin: 3            # subsample posterior trees for the absolute-HPD panel (speed)
+  support_cutoff: 0.50
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(ape); library(treeio); library(ggtree); library(ggplot2)
+library(dplyr); library(tidyr); library(patchwork)
+```
+
+## 1. Read the tree
+
+```{r read}
+tr  <- read.beast(file.path(params$run_dir, params$tree_file))
+phy <- as.phylo(tr)
+tr
+```
+
+## 2. Tip metadata
+
+Clade and origin come from `selected_taxa.csv`, **not** the tip label: panathenaics
+are labelled `amphora`, so the label's shape token would misclassify them. Year is
+the midpoint of each type's date range.
+
+```{r meta}
+sel <- read.csv(file.path(params$repo_dir, params$selected_file), stringsAsFactors = FALSE)
+meta <- tibble::tibble(label = phy$tip.label) |>
+  left_join(sel |> transmute(label = type,
+              clade  = dplyr::recode(sub("_(greek|ital)$", "", group),
+                        loutro = "loutrophoros", pan = "panathenaic",
+                        outgroup = "neck (outgroup)"),
+              origin = ifelse(place == "greek_italiote", "Italiote", "Greek"),
+              year   = round((date_earliest + date_latest) / 2)),
+            by = "label") |>
+  mutate(id = sub(".*_([0-9]+)$", "\\1", label),
+         tip_label = sprintf("%s %s %d BCE (%s)", origin, clade, -year, id))
+stopifnot(!any(is.na(meta$clade)))
+pal_clade <- c(pelike = "#E69F00", loutrophoros = "#009E73",
+               panathenaic = "#56B4E9", `neck (outgroup)` = "#999999")
+pal_origin <- c(Greek = "grey20", Italiote = "#D55E00")
+knitr::kable(meta |> count(clade, origin) |> tidyr::pivot_wider(names_from = origin, values_from = n))
+```
+
+## 3. Time axis (absolute chronology)
+
+MCC branch lengths are *relative* (youngest tip at 0). Ages in `mini_taxa.tsv` are
+BP relative to 1950. Tip ages were estimated, so we anchor on the posterior median
+of the youngest tip, then read the axis in calendar years.
+
+```{r tip-ages}
+tax <- read.delim(file.path(params$repo_dir, params$taxa_file))
+post_all <- read.table(file.path(params$run_dir, params$log_file), header = TRUE,
+                       sep = "\t", check.names = FALSE)
+keep_rows <- (round(nrow(post_all) * params$burnin) + 1):nrow(post_all)
+post_all  <- post_all[keep_rows, ]
+tcols <- grep("^t\\[", names(post_all))
+tmed  <- sapply(post_all[tcols], median)
+
+# RevBayes orders t[i] by taxon name; verify every median sits inside its prior.
+tip_age <- tibble::tibble(label = sort(tax$taxon), age_bp = as.numeric(tmed)) |>
+  left_join(tax, by = c(label = "taxon")) |>
+  mutate(in_prior = age_bp >= min_age & age_bp <= max_age)
+stopifnot(all(tip_age$in_prior))
+```
+
+```{r axis}
+depth       <- ape::node.depth.edgelength(phy)
+root_offset <- max(depth)
+rel_age     <- root_offset - depth
+anchor_bp   <- min(tip_age$age_bp)                    # youngest tip
+node_year   <- (params$bp_zero - anchor_bp) - rel_age
+root_year   <- node_year[ape::Ntip(phy) + 1]
+cat(sprintf("Youngest tip: %.0f BP = %.0f BCE\n", anchor_bp, params$bp_zero - anchor_bp))
+cat(sprintf("Root: %.0f BP = %.0f BCE   (tree height %.0f yr)\n",
+            anchor_bp + root_offset, -root_year, root_offset))
+
+p <- ggtree(tr, size = 0.6) %<+% meta
+time_axis <- function(headroom = 0.55, left = 0) {
+  scale_x_continuous(
+    limits = c(min(0, left), root_offset * (1 + headroom)),
+    breaks = scales::breaks_pretty(6)(c(min(0, left), root_offset)),
+    labels = function(x) { yr <- round(x + root_year)
+      ifelse(yr < 0, paste0(abs(yr), " BCE"), ifelse(yr == 0, "0", paste0(yr, " CE"))) })
+}
+```
+
+## 4. Plot 1 — base tree with support, coloured by clade & origin
+
+```{r plot1, fig.height=11}
+p1 <- p +
+  geom_tiplab(aes(label = tip_label, colour = clade),
+              size = 2.7, offset = 8, show.legend = FALSE) +
+  geom_tippoint(aes(colour = clade, shape = origin), size = 2.4) +
+  geom_text2(aes(subset = !isTip & !is.na(posterior) &
+                          posterior >= params$support_cutoff,
+                 label = sprintf("%.2f", posterior)),
+             hjust = 1.2, vjust = -0.5, size = 2.5, colour = "grey30") +
+  scale_colour_manual(values = pal_clade, name = "Clade") +
+  scale_shape_manual(values = c(Greek = 16, Italiote = 17), name = "Origin") +
+  theme_tree2() + coord_cartesian(clip = "off") +
+  labs(x = NULL, title = "MCC tree, node labels = posterior probability") +
+  time_axis()
+p1
+```
+
+## 5. Plot 2 — 95% HPD on absolute node ages
+
+The MCC `age_0.95_HPD` is on the relative scale. We recompute absolute ages per
+posterior sample — `absolute_age = relative_age(sample) + youngest_tip_age(sample)`
+— and take the HPD of that, which propagates anchor uncertainty. With 39 tips the
+youngest tip is not unique across samples, so we anchor on the minimum tip age in
+each sample rather than a fixed tip. Trees are thinned by `hpd_thin` for speed.
+
+```{r abs-hpd}
+TT <- read.table(file.path(params$run_dir, params$trees_file), header = TRUE,
+                 sep = "\t", stringsAsFactors = FALSE, quote = "",
+                 comment.char = "", check.names = FALSE)
+stopifnot(identical(TT$Iteration, read.table(
+  file.path(params$run_dir, params$log_file), header = TRUE, sep = "\t",
+  check.names = FALSE)$Iteration))
+TT <- TT[keep_rows, ]
+
+# thin trees + the aligned t[] matrix identically
+sub      <- seq(1, nrow(TT), by = params$hpd_thin)
+t_young  <- apply(post_all[tcols], 1, min)[sub]        # youngest tip age per sample
+trees    <- read.tree(text = gsub("\\[[^]]*\\]", "", TT$Tree[sub]))
+canon    <- sort(phy$tip.label)
+ckey     <- function(t, ix) paste(sort(match(t$tip.label[ix], canon)), collapse = ",")
+
+acc <- new.env(hash = TRUE, parent = emptyenv())
+for (s in seq_along(trees)) {
+  ts <- trees[[s]]; dd <- node.depth.edgelength(ts); pp <- prop.part(ts)
+  ages <- (max(dd) - dd)[ape::Ntip(ts) + seq_along(pp)] + t_young[s]
+  for (i in seq_along(pp)) { k <- ckey(ts, pp[[i]]); acc[[k]] <- c(acc[[k]], ages[i]) }
+}
+hdi <- function(x, prob = 0.95) { x <- sort(x); n <- length(x); m <- max(1, floor(n * prob))
+  i <- which.min(x[m:n] - x[1:(n - m + 1)]); c(x[i], x[i + m - 1]) }
+
+ntip   <- ape::Ntip(phy); mcc_pp <- prop.part(phy)
+node_hpd <- lapply(seq_along(mcc_pp), function(i) {
+  a <- acc[[ckey(phy, mcc_pp[[i]])]]
+  if (is.null(a)) return(NULL)
+  tibble::tibble(node = ntip + i, freq = length(a) / length(trees),
+                 med = median(a), lo = hdi(a)[1], hi = hdi(a)[2]) }) |> bind_rows()
+tip_hpd <- lapply(seq_len(ntip), function(i) {
+  a <- post_all[[tcols[match(phy$tip.label[i], sort(tax$taxon))]]]
+  tibble::tibble(node = i, freq = 1, med = median(a), lo = hdi(a)[1], hi = hdi(a)[2]) }) |>
+  bind_rows()
+age_hpd <- bind_rows(tip_hpd, node_hpd)
+```
+
+```{r plot2, fig.height=11}
+bp_to_x <- function(bp) (params$bp_zero - bp) - root_year
+bars <- age_hpd |> left_join(p$data |> select(node, y), by = "node") |>
+  mutate(x_lo = bp_to_x(hi), x_hi = bp_to_x(lo), x_med = bp_to_x(med),
+         kind = ifelse(node <= ntip, "Tip age", "Node age"))
+p2 <- p +
+  geom_segment(data = bars, aes(x = x_lo, xend = x_hi, y = y, yend = y, colour = kind),
+               linewidth = 2, alpha = 0.4, lineend = "round") +
+  geom_point(data = bars, aes(x = x_med, y = y), size = 0.8, colour = "grey20") +
+  geom_tiplab(aes(label = tip_label), size = 2.5, offset = 8) +
+  scale_colour_manual(values = c(`Node age` = "#377EB8", `Tip age` = "#4DAF4A"),
+                      name = "95% HPD") +
+  theme_tree2() + coord_cartesian(clip = "off") +
+  labs(title = "95% HPD on absolute ages (anchor uncertainty propagated)",
+       subtitle = "grey dots = posterior median; freq column = clade frequency in posterior") +
+  time_axis(headroom = 0.75, left = min(bars$x_lo))
+p2
+```
+
+Node bars are wide because within-clade support is low: a node present in only a
+fraction of posterior samples (`freq`) has its age estimated from those samples
+alone. The deep squat/elongate split is the exception — well supported, tight bar.
+
+## 6. Plot 3 — support as node size, sampled-ancestor probability
+
+```{r plot3, fig.height=11}
+p3 <- p +
+  geom_nodepoint(aes(size = posterior), colour = "grey25", alpha = 0.7) +
+  geom_tippoint(aes(fill = sampled_ancestor), shape = 21, size = 3, colour = "grey20") +
+  geom_tiplab(aes(label = tip_label), size = 2.5, offset = 8) +
+  scale_size_continuous(range = c(0.5, 5), name = "Posterior") +
+  scale_fill_viridis_c(option = "magma", direction = -1, name = "P(sampled\nancestor)") +
+  theme_tree2() + coord_cartesian(clip = "off") +
+  labs(title = "Clade support and sampled-ancestor probability") +
+  time_axis()
+p3
+```
+
+## 7. Plot 4 — pot profiles at the tips (filled by clade)
+
+```{r profiles}
+prof_all <- read.csv(file.path(params$data_dir, params$profile_file))
+stopifnot(all(phy$tip.label %in% prof_all$type))
+tipxy <- p$data |> filter(isTip) |> select(label, tx = x, ty = y)
+headroom <- 0.75
+k  <- (root_offset * (1 + headroom) / ape::Ntip(phy)) * (params$fig_h / params$fig_w)
+sy <- params$pot_height / 3; sx <- sy * k * params$pot_stretch
+pots <- prof_all |> filter(type %in% phy$tip.label) |>
+  select(label = type, point_order, px = x, py = y) |>
+  left_join(tipxy, by = "label") |> left_join(select(meta, label, clade), by = "label") |>
+  arrange(label, point_order) |>
+  mutate(x = tx + params$pot_offset * root_offset + px * sx, y = ty + py * sy)
+pot_span <- max(abs(prof_all$x)) * sx
+```
+
+```{r plot4, fig.width=params$fig_w, fig.height=params$fig_h}
+p4 <- p +
+  geom_polygon(data = pots, aes(x = x, y = y, group = label, fill = clade),
+               colour = "grey25", linewidth = 0.22) +
+  geom_tippoint(size = 1.1, colour = "grey30") +
+  geom_text2(aes(subset = !isTip & !is.na(posterior) & posterior >= params$support_cutoff,
+                 label = sprintf("%.2f", posterior)), hjust = 1.2, vjust = -0.5,
+             size = 2.4, colour = "grey30") +
+  geom_text(data = distinct(pots, label, tx, ty) |> left_join(meta, by = "label"),
+            aes(x = tx + params$pot_offset * root_offset + 1.25 * pot_span, y = ty,
+                label = sprintf("%s, %d BCE", origin, -year)),
+            hjust = 0, size = 2.5, colour = "grey20") +
+  scale_fill_manual(values = pal_clade, name = "Clade") +
+  theme_tree2() + coord_cartesian(clip = "off") +
+  labs(title = "MCC tree with pot profiles at the tips") +
+  time_axis(headroom = headroom)
+p4
+```
+
+## 8. Plot 5 — pots filled by measured shape (PC1), outlined by clade
+
+These are the same PCs the model was fitted to (`r params$pc_file`).
+
+```{r read-pcs}
+parse_cont_nex <- function(f) {
+  L <- readLines(f); L <- L[grepl("^[[:space:]]+[^[:space:]]+[[:space:]]+-?[0-9]", L)]
+  parts <- strsplit(trimws(L), "[[:space:]]+"); tx <- vapply(parts, `[`, "", 1)
+  vals <- lapply(parts, function(p) as.numeric(p[-1])); ord <- unique(tx)
+  out <- t(vapply(ord, function(t) unlist(vals[tx == t]),
+                  numeric(length(unlist(vals[tx == ord[1]])))))
+  colnames(out) <- paste0("PC", seq_len(ncol(out))); out
+}
+pcs  <- parse_cont_nex(file.path(params$repo_dir, params$pc_file))
+npc  <- min(5, ncol(pcs))
+pcdf <- tibble::as_tibble(pcs[, 1:npc], rownames = "label")
+stopifnot(all(phy$tip.label %in% pcdf$label))
+aspect <- sapply(pcdf$label, function(t) {
+  s <- filter(prof_all, type == t); (max(s$y) - min(s$y)) / (max(s$x) - min(s$x)) })
+r_pc1 <- cor(pcdf$PC1, aspect)
+cat(sprintf("cor(PC1, height/width) = %.2f  (|r| near 1 => PC1 is the squat/slender axis)\n", r_pc1))
+# orient so that positive = slender (taller), for a consistent colour scale
+if (r_pc1 < 0) { pcs[, "PC1"] <- -pcs[, "PC1"]; pcdf$PC1 <- -pcdf$PC1 }
+```
+
+```{r plot5, fig.width=params$fig_w, fig.height=params$fig_h}
+pots_pc <- pots |> left_join(pcdf |> select(label, PC1), by = "label")
+p5 <- p +
+  geom_polygon(data = pots_pc, aes(x = x, y = y, group = label, fill = PC1, colour = clade),
+               linewidth = 0.5) +
+  geom_text(data = distinct(pots, label, tx, ty) |> left_join(meta, by = "label"),
+            aes(x = tx + params$pot_offset * root_offset + 1.25 * pot_span, y = ty,
+                label = sprintf("%s, %d BCE", origin, -year)),
+            hjust = 0, size = 2.5, colour = "grey20") +
+  scale_fill_gradient2(low = "#56B4E9", mid = "grey93", high = "#E69F00", midpoint = 0,
+                       name = "PC1\n(squat → slender)") +
+  scale_colour_manual(values = pal_clade, name = "Clade") +
+  guides(colour = guide_legend(override.aes = list(fill = NA, linewidth = 1.2))) +
+  theme_tree2() + coord_cartesian(clip = "off") +
+  labs(title = "Fill = measured shape (PC1); outline = clade") +
+  time_axis(headroom = headroom)
+p5
+```
+
+```{r morphospace, fig.width=7.5, fig.height=6}
+msp <- pcdf |> left_join(meta, by = "label")
+ggplot(msp, aes(PC1, PC2)) +
+  geom_hline(yintercept = 0, colour = "grey85") + geom_vline(xintercept = 0, colour = "grey85") +
+  geom_point(aes(fill = clade, shape = origin), size = 3.5, colour = "grey25", stroke = 0.4) +
+  ggrepel::geom_text_repel(aes(label = sprintf("%s %d BCE", id, -year)),
+                           size = 2.4, colour = "grey35", max.overlaps = 25) +
+  scale_fill_manual(values = pal_clade, name = "Clade") +
+  scale_shape_manual(values = c(Greek = 21, Italiote = 24), name = "Origin") +
+  guides(fill = guide_legend(override.aes = list(shape = 21))) +
+  theme_bw() +
+  labs(title = "Morphospace of the 39 taxa",
+       subtitle = "PC1 = squat↔slender; clades overlap heavily (why within-clade support is low)")
+```
+
+## 9. Posterior parameter estimates & traces
+
+```{r params-post}
+logs <- list.files(params$run_dir, pattern = "_run_[0-9]+\\.log$", full.names = TRUE)
+post <- lapply(seq_along(logs), function(i) {
+  d <- read.table(logs[i], header = TRUE, sep = "\t", check.names = FALSE)
+  d <- d[-seq_len(ceiling(nrow(d) * params$burnin)), ]; d$run <- factor(i); d }) |> bind_rows()
+pars <- c("speciation_rate", "extinction_rate", "psi", "sigma2", "origin_time")
+post |> select(all_of(pars)) |> pivot_longer(everything()) |> group_by(name) |>
+  summarise(median = median(value), lower = quantile(value, .025),
+            upper = quantile(value, .975)) |> knitr::kable(digits = 5)
+```
+
+```{r trace, fig.height=5}
+post |> select(Iteration, run, all_of(pars)) |> pivot_longer(all_of(pars)) |>
+  ggplot(aes(Iteration, value, colour = run)) +
+  geom_line(alpha = 0.6, linewidth = 0.25) +
+  facet_wrap(~name, scales = "free_y") +
+  scale_colour_brewer(palette = "Dark2") + theme_bw() +
+  labs(title = "Traces across the three runs", y = NULL)
+```
+
+## 10. MCMC diagnostics
+
+```{r ess}
+library(coda)
+runs <- split(post, post$run)
+allp <- c(pars)
+ess  <- sapply(runs, function(d) sapply(d[allp], \(x) effectiveSize(as.mcmc(x))))
+psrf <- gelman.diag(mcmc.list(lapply(runs, \(d) as.mcmc(as.matrix(d[allp])))),
+                    multivariate = FALSE, autoburnin = FALSE)$psrf
+tibble::tibble(parameter = allp, run1 = round(ess[, 1]), run2 = round(ess[, 2]),
+               run3 = round(ess[, 3]), psrf = round(psrf[allp, 1], 3)) |>
+  arrange(pmin(run1, run2, run3)) |> knitr::kable()
+```
+
+`speciation_rate`/`extinction_rate` are non-identifiable (FBD ridge); reparameterise
+and the informed directions sample perfectly. `sigma2` is the number to watch across
+PC counts — it slides toward its 0.001 floor as low-variance PCs are added.
+
+```{r reparam}
+post <- post |> mutate(net_div = speciation_rate - extinction_rate,
+                       turnover = extinction_rate / speciation_rate)
+cat(sprintf("cor(lambda, mu) = %.4f\n", cor(post$speciation_rate, post$extinction_rate)))
+post |> select(net_div, turnover, sigma2) |> pivot_longer(everything()) |> group_by(name) |>
+  summarise(median = median(value), lower = quantile(value, .025),
+            upper = quantile(value, .975)) |> knitr::kable(digits = 5)
+```
+
+```{r ridge, fig.width=10, fig.height=4}
+pal_run <- c(`1` = "#E69F00", `2` = "#56B4E9", `3` = "#009E73")
+(ggplot(post, aes(speciation_rate, extinction_rate, colour = run)) +
+   geom_abline(slope = 1, intercept = 0, colour = "grey60", linetype = 2) +
+   geom_point(alpha = 0.25, size = 0.6) + coord_equal() +
+   scale_colour_manual(values = pal_run) + theme_bw() +
+   labs(title = "lambda vs mu: a line, not a cloud")) |
+(ggplot(post, aes(Iteration, sigma2, colour = run)) +
+   geom_line(alpha = 0.7, linewidth = 0.25) +
+   scale_colour_manual(values = pal_run) + theme_bw() +
+   labs(title = "sigma2 trace (BM rate)", y = NULL))
+```
