@@ -38,7 +38,8 @@ S   <- pca$x[, 1:N_PC, drop = FALSE]
 cat(sprintf("using %d PCs (%.2f%% cumulative variance)\n", N_PC, 100 * cumsum(ve)[N_PC]))
 
 ## --- write NEXUS continuous character matrix (pilot format) ----------------
-nex <- file.path(OUT, "mini_character.nex")
+## filename carries the PC count so different sweeps coexist (mini_character_20.nex)
+nex <- file.path(OUT, sprintf("mini_character_%d.nex", N_PC))
 con <- file(nex, "w")
 writeLines(c("#NEXUS",
              sprintf("[Data written by make_revbayes_data.R, %s]", format(Sys.time())),
