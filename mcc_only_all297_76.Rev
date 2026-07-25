@@ -1,0 +1,6 @@
+# Rebuild ONLY the all297_76 MCC tree (single process). See submit_mcc_all297_76.pbs.
+BASE = "amphora-phylogeny"
+OUTPUT_DIR = BASE + "/output/simple_run_all297_76"
+trace = readTreeTrace(OUTPUT_DIR + ".trees")
+mccTree(trace, file=(OUTPUT_DIR + "_mcc.tree"))
+q()

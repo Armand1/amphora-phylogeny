@@ -1,0 +1,24 @@
+#!/bin/sh
+#PBS -l walltime=01:00:00
+#PBS -l select=1:ncpus=4:mem=40gb
+#PBS -N amph297_76_mcc
+
+# Rebuild the MCC summary tree only (single process, generous memory).
+# Run after the main job if simple_run_all297_76_mcc.tree is missing/interrupted.
+
+cd "$HOME/GitHub" || { echo "ERROR: cd $HOME/GitHub failed"; exit 1; }
+
+LOGFILE="amphora-phylogeny/output/mcc_logfile_all297_76.log"
+PROGRAM="$HOME/revbayes/projects/cmake/build-mpi/rb-mpi"
+[ -x "$PROGRAM" ] || { echo "ERROR: RevBayes not found/executable at $PROGRAM"; exit 1; }
+
+module load tools/dev
+module load tools/prod
+module load OpenMPI
+module load GCC/14.3.0
+
+# single MPI rank => no worker ranks to be killed at teardown
+mpirun -np 1 ${PROGRAM} "amphora-phylogeny/mcc_only_all297_76.Rev" > ${LOGFILE} 2>&1
+
+echo "done; mcc tree should be at amphora-phylogeny/output/simple_run_all297_76_mcc.tree"
+ls -la amphora-phylogeny/output/simple_run_all297_76_mcc.tree >> ${LOGFILE} 2>&1
