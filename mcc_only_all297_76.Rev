@@ -1,6 +1,8 @@
 # Rebuild ONLY the all297_76 MCC tree (single process). See submit_mcc_all297_76.pbs.
 BASE = "amphora-phylogeny"
 OUTPUT_DIR = BASE + "/output/simple_run_all297_76"
-trace = readTreeTrace(OUTPUT_DIR + ".trees")
+# thin at read time: 120k trees of 297 taxa won't fit in memory otherwise
+# (OOM'd during read at 40gb). burnin 10% + thin x20 -> ~5.4k trees, ample for MCC.
+trace = readTreeTrace(OUTPUT_DIR + ".trees", burnin=0.1, thinning=20)
 mccTree(trace, file=(OUTPUT_DIR + "_mcc.tree"))
 q()

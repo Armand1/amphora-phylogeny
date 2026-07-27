@@ -1,6 +1,6 @@
 #!/bin/sh
-#PBS -l walltime=01:00:00
-#PBS -l select=1:ncpus=4:mem=40gb
+#PBS -l walltime=03:00:00
+#PBS -l select=1:ncpus=4:mem=64gb
 #PBS -N amph297_38_mcc
 
 # Rebuild the MCC summary tree only (single process, generous memory).
