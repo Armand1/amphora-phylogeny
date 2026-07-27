@@ -1,0 +1,52 @@
+# =============================================================================
+# FBD prior — FIXED + TUNED variant (sibling of FBD.Rev; originals untouched).
+# Changes vs FBD.Rev, all aimed at the 297-taxon convergence failure:
+#   1. psi prior corrected: dnExponential(10000) [mean 1e-4] was a bug — the data
+#      imply psi ~ 0.006. Now dnExponential(100) [mean 0.01].
+#   2. lambda/mu reparameterised to net-diversification + turnover, which removes
+#      the non-identifiable lambda=mu ridge (perfect ESS in the pilot). Individual
+#      rates are deterministic; do not interpret them.
+#   3. topology-move weights raised sharply (the actual convergence blocker was
+#      topology mixing, not node times), plus mvSubtreeScale added.
+# Keeps sampled ancestors (mvCollapseExpandFossilBranch), as in FBD.Rev.
+# =============================================================================
+
+# --- diversification / turnover (removes the lambda=mu ridge) ---
+diversification ~ dnExponential(10)          # net div (lambda-mu); data ~ 0 (critical)
+turnover        ~ dnUniform(0.0, 1.0)         # mu/lambda; data ~ 1
+moves.append( mvScale(diversification, lambda = 0.5, weight = 3.0) )
+moves.append( mvSlide(turnover,        delta  = 0.2, weight = 3.0) )
+speciation_rate := diversification / abs(1.0 - turnover)   # deterministic; do NOT interpret
+extinction_rate := turnover * speciation_rate
+
+# --- fossil sampling rate (corrected prior) ---
+psi ~ dnExponential(100)                       # mean 0.01 (was 1e-4)
+moves.append( mvScale(psi, lambda = 0.5, weight = 2.0) )
+
+rho <- 1.0
+
+# --- origin time (ceiling 4000, as in FBD.Rev) ---
+origin_time ~ dnUnif(max_age, 4000)
+moves.append( mvSlide(origin_time, delta = 0.5, weight = 5.0) )
+
+fbd_tree ~ dnFBDP(origin = origin_time, lambda = speciation_rate, mu = extinction_rate,
+                  psi = psi, rho = rho, taxa = taxa)
+
+# --- topology exploration: heavier than FBD.Rev (was 15/6/40/5) ---
+moves.append( mvFNPR(fbd_tree,                            weight = 40.0) )
+moves.append( mvCollapseExpandFossilBranch(fbd_tree, origin_time, weight = 10.0) )
+moves.append( mvNodeTimeSlideUniform(fbd_tree,           weight = 60.0) )
+moves.append( mvRootTimeSlideUniform(fbd_tree, origin_time, weight = 8.0) )
+moves.append( mvSubtreeScale(fbd_tree,                   weight = 20.0) )
+
+# --- tip-age uncertainty ---
+fossils = fbd_tree.getFossils()
+for (i in 1:fossils.size())
+{
+    t[i] := tmrca(fbd_tree, clade(fossils[i]))
+    a_i = fossils[i].getMinAge()
+    b_i = fossils[i].getMaxAge()
+    F[i] ~ dnUniform(t[i] - b_i, t[i] - a_i)
+    F[i].clamp(0)
+}
+moves.append( mvFossilTimeSlideUniform(fbd_tree, origin_time, weight = 20.0) )

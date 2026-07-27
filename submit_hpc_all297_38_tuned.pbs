@@ -1,0 +1,33 @@
+#!/bin/sh
+#PBS -l walltime=72:00:00
+#PBS -l select=1:ncpus=25:mem=32gb
+#PBS -N amph297_38_tuned
+
+# Fixed+tuned all297 SRVF-38 rerun. mcmcmc(nchains=8, nruns=3) = 24 chains -> 25 ranks.
+# 2M generations; may run for days — check ESS/ASDSF partway and extend if needed.
+# NB: watch the first minute of the log for a move/parse error before walking away.
+
+cd "$HOME/GitHub" || { echo "ERROR: cd $HOME/GitHub failed"; exit 1; }
+mkdir -p "amphora-phylogeny/output"
+
+LOGFILE="amphora-phylogeny/output/logfile_all297_38_tuned.log"
+PROGRAM="$HOME/revbayes/projects/cmake/build-mpi/rb-mpi"
+[ -x "$PROGRAM" ] || { echo "ERROR: RevBayes not found/executable at $PROGRAM"; exit 1; }
+
+SECONDS=0
+echo "INFO:Starting        "`date`              > ${LOGFILE}
+echo "INFO:Node Used       "`hostname`         >> ${LOGFILE}
+echo "INFO:In dir          "`pwd`              >> ${LOGFILE}
+
+module load tools/dev
+module load tools/prod
+module load OpenMPI
+module load GCC/14.3.0
+
+mpirun -np 25 --map-by :OVERSUBSCRIBE ${PROGRAM} \
+       "amphora-phylogeny/master_script_all297_38_tuned.Rev" >> ${LOGFILE} 2>&1
+
+duration=$SECONDS
+hrs=$(($duration / 3600)); min=$(($(($duration % 3600))/60)); sec=$(($duration % 60))
+echo "INFO:Finishing       "`date`              >> ${LOGFILE}
+echo "INFO:Time_Taken_(H:M:S)    : ${hrs}:${min}:${sec}" >> ${LOGFILE}

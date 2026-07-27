@@ -1,0 +1,40 @@
+# =============================================================================
+# ALL-297 amphora tree, SRVF-76 PC — FIXED + TUNED rerun (convergence attempt).
+# Sibling of master_script_all297_38_tuned.Rev; only the character file, trait
+# range, and output name differ. 76 PC floored sigma2 in the 400k run and mixed
+# worse (ASDSF ~0.117); run concurrently for comparison. In-script mccTree
+# removed; summarise with mcc_only_all297_76_tuned.Rev afterwards.
+# Output simple_run_all297_76_tuned.*.
+# =============================================================================
+BASE = "amphora-phylogeny"
+OUTPUT_DIR = BASE + "/output/simple_run_all297_76_tuned"
+
+morpho <- readContinuousCharacterData(BASE + "/data/mini_character_all297_srvf_76.nex")
+taxa   <- readTaxonData(BASE + "/data/mini_taxa_all297.tsv")
+
+for (i in 1:taxa.size()) { ages[i] = taxa[i].getMaxAge() }
+max_age = max(ages)
+
+trait <- 1:76
+morpho.excludeAll()
+morpho.includeCharacter( trait )
+
+moves = VectorMoves()
+
+source(BASE + "/scripts/FBD_tuned.Rev")
+source(BASE + "/scripts/strict_clock.Rev")
+source(BASE + "/scripts/simple_BM.Rev")
+
+mymodel = model(sigma2)
+
+monitors = VectorMonitors()
+monitors.append( mnModel(filename=(OUTPUT_DIR + ".log"), printgen=200) )
+monitors.append( mnExtNewick(filename=(OUTPUT_DIR + ".trees"), isNodeParameter=TRUE,
+                             printgen=200, separator=TAB, tree=fbd_tree) )
+monitors.append( mnScreen(printgen=1000, sigma2, origin_time, diversification, turnover) )
+
+mymcmcmc = mcmcmc(mymodel, monitors, moves, nchains=8, nruns=3, tuneHeat=TRUE, combine="mixed")
+mymcmcmc.burnin(generations=50000, tuningInterval=200)
+mymcmcmc.run(2000000)
+
+q()

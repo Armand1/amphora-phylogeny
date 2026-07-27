@@ -1,0 +1,7 @@
+# Rebuild the all297_38_tuned MCC tree (single process, thinned to fit memory).
+# 2M gens / printgen 200 = ~10k trees/run x3 = ~30k; burnin 10% + thin x5 -> ~5.4k.
+BASE = "amphora-phylogeny"
+OUTPUT_DIR = BASE + "/output/simple_run_all297_38_tuned"
+trace = readTreeTrace(OUTPUT_DIR + ".trees", burnin=0.1, thinning=5)
+mccTree(trace, file=(OUTPUT_DIR + "_mcc.tree"))
+q()
