@@ -1,0 +1,6 @@
+# Rebuild the good238_76_tuned MCC tree (single process, thinned to fit memory).
+BASE = "amphora-phylogeny"
+OUTPUT_DIR = BASE + "/output/simple_run_good238_76_tuned"
+trace = readTreeTrace(OUTPUT_DIR + ".trees", burnin=0.1, thinning=5)
+mccTree(trace, file=(OUTPUT_DIR + "_mcc.tree"))
+q()
