@@ -1,0 +1,18 @@
+# Salvage MCC for good238_38_tuned from the three per-run trace files.
+#
+# The stock mcc_only_good238_38_tuned.Rev reads the COMBINED
+# simple_run_good238_38_tuned.trees, which mcmcmc(combine="mixed") only writes
+# on a clean finish. If the 72h walltime kills the run first that file never
+# appears, so this version reads the _run_1/2/3 files directly -- which works
+# whether or not the run completed. Writes to *_mcc_perrun.tree so a clean-finish
+# MCC is never clobbered.
+BASE = "amphora-phylogeny"
+OUTPUT_DIR = BASE + "/output/simple_run_good238_38_tuned"
+
+files = [OUTPUT_DIR + "_run_1.trees",
+         OUTPUT_DIR + "_run_2.trees",
+         OUTPUT_DIR + "_run_3.trees"]
+
+trace = readTreeTrace(files, burnin=0.1, thinning=5)
+mccTree(trace, file=(OUTPUT_DIR + "_mcc_perrun.tree"))
+q()
