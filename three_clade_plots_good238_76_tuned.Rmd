@@ -1,5 +1,5 @@
 ---
-title: "Good-238 tuned amphora tree — full analysis"
+title: "Good-238 tuned amphora tree — 76 PC"
 output:
   html_document:
     toc: true
@@ -7,11 +7,12 @@ output:
     fig_width: 9
     fig_height: 6
 params:
-  # Parametrised sibling of three_clade_plots_all297.Rmd, for the two post-QC
-  # good238 TUNED trees. Render with pc_tag = "38" or "76"; everything else is
-  # derived. See the status note in section 0 -- the 38 and 76 trees are NOT
-  # equally trustworthy, and the difference is not visible in the ESS table.
-  pc_tag: "38"
+  # Good-238 post-QC types, tuned FBD, 76 SRVF PCs. Sibling of
+  # three_clade_plots_good238_38_tuned.Rmd (identical but for pc_tag) and of
+  # three_clade_plots_all297.Rmd. pc_tag drives every derived path below; leave
+  # it at "76" in this file. See section 0 -- the 38 and 76 trees are NOT equally
+  # trustworthy, and the difference is not visible in the ESS table.
+  pc_tag: "76"
   repo_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/phylogenies/2026_07_three_clade_tree"
   data_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/Making amphora types/05_2026_amphora_297_types"
   profile_file: "2026_amphora_297_types_profiles_with_metadata.csv"
