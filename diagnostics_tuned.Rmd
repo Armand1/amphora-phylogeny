@@ -1,0 +1,194 @@
+---
+title: "MCMC diagnostics — tuned FBD run"
+subtitle: "Tracer-style checks (ESS, PSRF, traces, densities) for the good238 tuned runs, on chains truncated to a common generation window"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: paged
+params:
+  run_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/phylogenies/2026_07_three_clade_tree/runs/good238_38_tuned/output"
+  run_prefix: "simple_run_good238_38_tuned"   # log files are <prefix>_run_N.log
+  burnin_frac: 0.10      # dropped from the COMMON window, not from each raw chain
+  ess_target: 200        # ESS below this = flag
+  psrf_target: 1.05      # PSRF above this = flag
+---
+
+<!--
+Sibling of diagnostics.Rmd; the original is untouched and still correct for the
+untuned runs. Three differences, all forced by the good238 tuned runs:
+
+  1. FILE NAMES. diagnostics.Rmd globs "simple_run_run_*.log". The tuned runs
+     write "simple_run_good238_38_tuned_run_N.log", so the prefix is a param.
+
+  2. PARAMETERISATION. FBD_tuned.Rev samples `diversification` and `turnover`;
+     speciation_rate and extinction_rate are DETERMINISTIC functions of them
+     (":=") and must not be interpreted. diagnostics.Rmd's `keep` list asks for
+     speciation_rate as a free parameter, which is wrong for this model.
+
+  3. UNEQUAL CHAIN LENGTHS. The 72h walltime killed the three runs at different
+     generations (38pc: ~1.97M / 1.95M / 1.84M). coda::gelman.diag needs
+     equal-length chains, and a per-chain burnin FRACTION would compare
+     different absolute generation ranges across chains -- a range mismatch
+     that reads as false non-convergence. So we truncate all chains to the
+     common window [0, min(max(Iteration))] and take burnin from that.
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.width = 9, fig.height = 3)
+library(coda); library(ggplot2); library(dplyr); library(tidyr)
+```
+
+```{r read}
+files <- sort(Sys.glob(file.path(params$run_dir,
+                                 paste0(params$run_prefix, "_run_*.log"))))
+stopifnot("no log files matched run_prefix in run_dir" = length(files) > 0)
+raw <- lapply(files, read.delim, check.names = FALSE)
+
+# --- free (sampled) parameters of the tuned model, plus the fit columns.
+# speciation_rate / extinction_rate are deterministic here and handled separately.
+cand  <- c("Posterior","Likelihood","Prior",
+           "diversification","turnover","psi","origin_time","sigma2")
+avail <- Reduce(intersect, lapply(raw, names))
+keep  <- intersect(cand, avail)
+missing_cand <- setdiff(cand, avail)
+
+# --- truncate to the common generation window so PSRF compares like with like
+maxgen <- sapply(raw, \(df) max(df$Iteration))
+common <- min(maxgen)
+cut_common <- function(df) {
+  df <- df[df$Iteration <= common, , drop = FALSE]
+  n  <- nrow(df)
+  df[floor(n * params$burnin_frac):n, , drop = FALSE]
+}
+trimmed <- lapply(raw, cut_common)
+
+chains <- lapply(trimmed, \(df) df[, keep, drop = FALSE])
+# guard against off-by-one row counts from differing printgen alignment
+nmin   <- min(sapply(chains, nrow))
+chains <- lapply(chains, \(df) df[seq_len(nmin), , drop = FALSE])
+
+mc     <- as.mcmc.list(lapply(chains, as.mcmc))
+pooled <- as.mcmc(do.call(rbind, chains))
+
+cat(sprintf("files:\n%s\n\n", paste(" ", basename(files), collapse = "\n")))
+cat(sprintf("per-chain last generation: %s\n",
+            paste(format(maxgen, big.mark = ","), collapse = " | ")))
+cat(sprintf("common window: 0 - %s gen  (%.1f%% of the 2,000,000 target)\n",
+            format(common, big.mark = ","), common / 2e6 * 100))
+cat(sprintf("%d chains x %d post-burnin samples each, %d parameters\n",
+            length(chains), nmin, length(keep)))
+if (length(missing_cand))
+  cat(sprintf("\nNOTE: expected columns absent from the logs: %s\n",
+              paste(missing_cand, collapse = ", ")))
+cat(sprintf("\nDiscarded by truncation: %s generations of chain\n",
+            format(sum(maxgen - common), big.mark = ",")))
+```
+
+## 1. Summary table — ESS and PSRF (the two headline numbers)
+
+`ESS` = effective sample size (want > `r params$ess_target`). `PSRF` = Gelman–Rubin
+potential scale reduction across the chains (want ≈ 1, < `r params$psrf_target`).
+
+```{r summary}
+ess  <- effectiveSize(pooled)
+psrf <- gelman.diag(mc, multivariate = FALSE, autoburnin = FALSE)$psrf[, 1]
+tab <- data.frame(parameter = keep,
+                  mean    = round(sapply(keep, \(p) mean(pooled[, p])), 5),
+                  ESS     = round(ess[keep]),
+                  PSRF    = round(psrf[keep], 3),
+                  ESS_ok  = ess[keep]  >= params$ess_target,
+                  PSRF_ok = psrf[keep] <= params$psrf_target)
+knitr::kable(tab, row.names = FALSE)
+flagged <- tab$parameter[!tab$ESS_ok | !tab$PSRF_ok]
+if (length(flagged))
+  cat("FLAGGED:", paste(flagged, collapse = ", "), "\n") else cat("all parameters pass\n")
+```
+
+## 2. Trace plots (per chain — fuzzy caterpillars, chains overlapping)
+
+```{r traces, fig.height=11}
+long <- bind_rows(lapply(seq_along(chains), \(i)
+  as.data.frame(chains[[i]]) |> mutate(chain = factor(i), it = row_number()))) |>
+  pivot_longer(all_of(keep), names_to = "param", values_to = "value")
+ggplot(long, aes(it, value, colour = chain)) +
+  geom_line(linewidth = 0.2, alpha = 0.7) +
+  facet_wrap(~param, scales = "free_y", ncol = 2) +
+  theme_bw() + theme(legend.position = "top") +
+  labs(x = "sample (post burn-in, common window)", y = NULL, title = "Traces by chain")
+```
+
+## 3. Posterior densities (per chain — the curves should sit on top of each other)
+
+```{r densities, fig.height=11}
+ggplot(long, aes(value, colour = chain)) +
+  geom_density() +
+  facet_wrap(~param, scales = "free", ncol = 2) +
+  theme_bw() + theme(legend.position = "top") +
+  labs(x = NULL, title = "Marginal densities by chain")
+```
+
+## 4. Specific things to check on the tuned model
+
+```{r checks}
+g <- function(p) if (p %in% colnames(pooled)) pooled[, p] else NULL
+
+sig <- g("sigma2"); psi <- g("psi"); ot <- g("origin_time")
+div <- g("diversification"); tur <- g("turnover")
+
+cat("--- sigma2: pinned against its dnLoguniform(1e-3, 1) floor? ---\n")
+if (!is.null(sig)) {
+  cat(sprintf("  sigma2  min %.5f  2.5%%ile %.5f  median %.5f  (floor = 0.001)\n",
+              min(sig), quantile(sig, .025), median(sig)))
+  cat(sprintf("  -> %s\n\n", if (quantile(sig, .025) < 1.5e-3)
+      "NEAR THE FLOOR — rate wants to be lower than the prior allows"
+      else "clear of the floor — OK"))
+}
+
+cat("--- psi: did the corrected prior dnExponential(100) [mean 0.01] free it? ---\n")
+if (!is.null(psi)) {
+  cat(sprintf("  psi median %.6f  95%% [%.6f, %.6f]   (data implied ~0.006)\n",
+              median(psi), quantile(psi, .025), quantile(psi, .975)))
+  cat(sprintf("  -> %s\n\n", if (median(psi) < 1e-3)
+      "STILL stalled near 0 — the prior fix did not take"
+      else "moved off zero — the corrected prior worked"))
+}
+
+cat("--- diversification / turnover: did the reparameterisation break the ridge? ---\n")
+if (!is.null(div) && !is.null(tur)) {
+  cat(sprintf("  cor(diversification, turnover) = %.4f\n", cor(div, tur)))
+  cat(sprintf("  diversification (lambda-mu): median %.4f  95%% [%.4f, %.4f]  (expect ~0)\n",
+              median(div), quantile(div, .025), quantile(div, .975)))
+  cat(sprintf("  turnover (mu/lambda):        median %.4f  95%% [%.4f, %.4f]  (expect ~1)\n",
+              median(tur), quantile(tur, .025), quantile(tur, .975)))
+  cat(sprintf("  -> %s\n", if (abs(cor(div, tur)) > 0.9)
+      "still welded (r>0.9) — the ridge survived the reparameterisation"
+      else "separable — the reparameterisation did its job"))
+  cat(sprintf("  -> turnover %s\n\n", if (quantile(tur, .975) > 0.99)
+      "pressed against its 1.0 ceiling (critical branching; expected here)"
+      else "clear of its ceiling"))
+  cat("  NOTE: speciation_rate and extinction_rate are DETERMINISTIC (:=) in\n")
+  cat("  FBD_tuned.Rev. Do not interpret or report them individually.\n\n")
+}
+
+cat("--- origin_time: off its dnUnif(max_age, 4000) ceiling? ---\n")
+if (!is.null(ot)) {
+  cat(sprintf("  origin_time median %.0f BP  97.5%%ile %.0f BP  (ceiling 4000)\n",
+              median(ot), quantile(ot, .975)))
+  cat(sprintf("  -> %s\n", if (quantile(ot, .975) > 3950)
+      "JAMMED against the ceiling — raise it" else "clear of the ceiling — the fix held"))
+}
+```
+
+## 5. Verdict
+
+```{r verdict}
+ok <- all(tab$ESS_ok) && all(tab$PSRF_ok)
+cat(sprintf("Chains truncated to a common %s-generation window (%.1f%% of the 2M target).\n\n",
+            format(common, big.mark = ","), common / 2e6 * 100))
+cat(if (ok)
+  "All ESS > target and all PSRF ~ 1: the run mixed and the chains converged.\nTopology and dates are trustworthy at the model level, notwithstanding the\nwalltime truncation — the discarded tail is a few per cent of a chain that had\nalready run its 50k burnin plus ~1.8M generations.\n"
+  else
+  "Some parameters flagged (see table). Judge the chronology on t[]/origin_time and\nthe topology on posterior support. Note that a flag here is about the sampled\nparameters, not about the truncation per se: check whether the flagged parameter\nis one of the FBD nuisances before concluding the run is unusable.\n")
+```
