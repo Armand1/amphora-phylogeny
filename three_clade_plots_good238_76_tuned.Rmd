@@ -24,6 +24,10 @@ params:
   pot_stretch: 1.0
   fig_w: 13
   fig_h: 52
+  pdf_w: 34               # width of the exported high-res PDF for plot 4
+  pdf_text_scale: 2.6     # plot 4 PDF: multiply every text size by this
+  label_margin_pt: 430    # right margin (pt) reserved for plot 4's tip labels
+                          # (scaled with pdf_text_scale in the PDF export)
   burnin: 0.10
   support_cutoff: 0.50
   sigma2_floor: 0.001      # lower bound of dnLoguniform(1e-3, 1) in scripts/strict_clock.Rev
@@ -261,50 +265,82 @@ prof_all <- read.csv(file.path(params$data_dir, params$profile_file))
 stopifnot(all(phy$tip.label %in% prof_all$type))
 tipxy <- p$data |> filter(isTip) |> select(label, tx = x, ty = y)
 headroom <- 0.75
-k  <- (root_offset * (1 + headroom) / ape::Ntip(phy)) * (params$fig_h / params$fig_w)
-sy <- params$pot_height / 3; sx <- sy * k * params$pot_stretch
-pots <- prof_all |> filter(type %in% phy$tip.label) |>
-  select(label = type, point_order, px = x, py = y) |>
-  left_join(tipxy, by = "label") |> left_join(select(meta, label, clade), by = "label") |>
-  arrange(label, point_order) |>
-  mutate(x = tx + params$pot_offset * root_offset + px * sx, y = ty + py * sy)
-pot_span <- max(abs(prof_all$x)) * sx
+
+# Pot outlines are drawn in DATA units, so their apparent width depends on how
+# many x-data-units fit per inch of the PANEL -- not of the figure. Plot 4
+# reserves a large right margin for its tip labels, which shrinks the panel to
+# roughly half the figure width; scaling from fig_w there laterally compressed
+# every pot. (Plot 5 has no margin, which is why it always looked right.) So
+# derive the x-scale from the EFFECTIVE panel width, per output device.
+make_pots <- function(dev_w, dev_h, right_margin_pt = 0, left_margin_pt = 4) {
+  panel_w <- dev_w - (right_margin_pt + left_margin_pt) / 72      # inches
+  stopifnot("margins exceed the device width" = panel_w > 0.5)
+  k  <- (root_offset * (1 + headroom) / ape::Ntip(phy)) * (dev_h / panel_w)
+  sy <- params$pot_height / 3
+  sx <- sy * k * params$pot_stretch
+  d <- prof_all |> filter(type %in% phy$tip.label) |>
+    select(label = type, point_order, px = x, py = y) |>
+    left_join(tipxy, by = "label") |> left_join(select(meta, label, clade), by = "label") |>
+    arrange(label, point_order) |>
+    mutate(x = tx + params$pot_offset * root_offset + px * sx, y = ty + py * sy)
+  list(pots = d, span = max(abs(prof_all$x)) * sx, sx = sx, sy = sy)
+}
+
+# plot 5 and the morphospace: no extra margin, so panel ~ figure width
+pd5 <- make_pots(params$fig_w, params$fig_h, right_margin_pt = 0)
+pots <- pd5$pots; pot_span <- pd5$span
 ```
 
 ```{r plot4, fig.width=params$fig_w, fig.height=params$fig_h}
 # darker label palette (the amber pelike #E69F00 is barely legible on white)
 pal_label <- pal_clade; pal_label["pelike"] <- "#8a6a00"
-tiplab <- distinct(pots, label, tx, ty) |> left_join(meta, by = "label") |>
+# Built as a function of the pot geometry so the on-screen figure (fig_w) and the
+# exported PDF (pdf_w) each get pots scaled for their own panel width -- the two
+# devices differ, so one fixed scaling was always wrong for the other.
+p4_margin <- function(ts) params$label_margin_pt * ts
+build_p4 <- function(pd, ts = 1) {
+pots_d <- pd$pots; span <- pd$span
+tiplab <- distinct(pots_d, label, tx, ty) |> left_join(meta, by = "label") |>
   mutate(txt = sprintf("%s | %s | %d BCE | #%s", clade, origin, -year, id))
-p4 <- p +
+p +
   # period-transition guides (relative-x = calendar year - root_year)
   geom_vline(xintercept = c(-480 - root_year, -330 - root_year),
              linetype = "dotted", colour = "grey55", linewidth = 0.4) +
   annotate("text", x = c(-480 - root_year, -330 - root_year), y = ape::Ntip(phy) + 2,
            label = c("480 BCE  Archaic/Classical", "330 BCE  Classical/Hellenistic"),
-           size = 2.3, colour = "grey45", hjust = 0, vjust = 0) +
-  geom_polygon(data = pots, aes(x = x, y = y, group = label, fill = clade),
+           size = 2.3 * ts, colour = "grey45", hjust = 0, vjust = 0) +
+  geom_polygon(data = pots_d, aes(x = x, y = y, group = label, fill = clade),
                colour = "grey25", linewidth = 0.15) +
-  geom_tippoint(size = 0.6, colour = "grey30") +
+  geom_tippoint(size = 0.6 * ts, colour = "grey30") +
   # ALL internal-node posterior supports (not just >= cutoff)
   geom_text2(aes(subset = !isTip & !is.na(posterior),
                  label = sprintf("%.2f", as.numeric(posterior))),
-             size = 1.3, colour = "grey35", hjust = 1.15, vjust = -0.4) +
+             size = 1.3 * ts, colour = "grey35", hjust = 1.15, vjust = -0.4) +
   # per-tip label: class | origin | date | #id, coloured by clade
   geom_text(data = tiplab,
-            aes(x = tx + params$pot_offset * root_offset + 1.35 * pot_span, y = ty,
+            aes(x = tx + params$pot_offset * root_offset + 1.35 * span, y = ty,
                 label = txt, colour = clade),
-            hjust = 0, size = 1.9, show.legend = FALSE) +
+            hjust = 0, size = 1.9 * ts, show.legend = FALSE) +
   scale_fill_manual(values = pal_clade, name = "Clade") +
   scale_colour_manual(values = pal_label, guide = "none") +
   theme_tree2() + coord_cartesian(clip = "off") +
-  theme(plot.margin = margin(4, 430, 4, 4)) +
+  theme(plot.margin = margin(4, p4_margin(ts), 4, 4)) +
   labs(title = sprintf("good238 SRVF-%s tuned: profiles + all node supports + labels (class | origin | date | #id)", tag)) +
   time_axis(headroom = headroom)
-# high-resolution vector PDF (zoom as far as needed to read labels)
-ggsave(file.path(run_dir, sprintf("tree_profiles_labelled_good238_%s_tuned.pdf", tag)),
-       p4, device = cairo_pdf, width = 22, height = params$fig_h, limitsize = FALSE)
-p4
+}
+p4_screen <- build_p4(make_pots(params$fig_w, params$fig_h, p4_margin(1)), ts = 1)
+
+# High-res vector PDF: text sizes multiplied by pdf_text_scale so the node
+# posteriors and tip labels are legible at 100% instead of needing 500% zoom.
+# The label margin and canvas width grow with the text, so nothing is clipped.
+ts_pdf <- params$pdf_text_scale
+p4_pdf <- build_p4(make_pots(params$pdf_w, params$fig_h, p4_margin(ts_pdf)), ts = ts_pdf)
+pdf_path <- file.path(run_dir, sprintf("tree_profiles_labelled_good238_%s_tuned.pdf", tag))
+ggsave(pdf_path, p4_pdf, device = cairo_pdf,
+       width = params$pdf_w, height = params$fig_h, limitsize = FALSE)
+cat(sprintf("wrote %s  (%.0f x %.0f in, text x%.1f)\n",
+            basename(pdf_path), params$pdf_w, params$fig_h, ts_pdf))
+p4_screen
 ```
 
 ## 8. Plot 5 — pots filled by measured shape (PC1), outlined by clade
