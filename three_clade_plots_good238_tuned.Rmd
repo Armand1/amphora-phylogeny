@@ -1,0 +1,442 @@
+---
+title: "Good-238 tuned amphora tree — full analysis"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    fig_width: 9
+    fig_height: 6
+params:
+  # Parametrised sibling of three_clade_plots_all297.Rmd, for the two post-QC
+  # good238 TUNED trees. Render with pc_tag = "38" or "76"; everything else is
+  # derived. See the status note in section 0 -- the 38 and 76 trees are NOT
+  # equally trustworthy, and the difference is not visible in the ESS table.
+  pc_tag: "38"
+  repo_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/phylogenies/2026_07_three_clade_tree"
+  data_dir: "/Users/armandleroi/Documents/Amphora_phylogeny/Making amphora types/05_2026_amphora_297_types"
+  profile_file: "2026_amphora_297_types_profiles_with_metadata.csv"
+  selected_file: "selected_taxa_all297.csv"   # superset; filtered to the 238 tips below
+  taxa_file: "data/mini_taxa_good238.tsv"
+  bp_zero: 1950
+  pot_offset: 0.03
+  pot_height: 0.85
+  pot_stretch: 1.0
+  fig_w: 13
+  fig_h: 52
+  burnin: 0.10
+  support_cutoff: 0.50
+  sigma2_floor: 0.001      # lower bound of dnLoguniform(1e-3, 1) in scripts/strict_clock.Rev
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(ape); library(treeio); library(ggtree); library(ggplot2)
+library(dplyr); library(tidyr); library(data.table)
+options(ignore.negative.edge = TRUE)
+tag      <- params$pc_tag
+run_dir  <- file.path(params$repo_dir, sprintf("runs/good238_%s_tuned/output", tag))
+runs_dir <- file.path(params$repo_dir, "runs")
+# NB: the salvage MCC (built from the three _run_N.trees after the walltime kill),
+# not the clean-finish *_mcc.tree, which mcmcmc never got to write.
+tree_file  <- sprintf("simple_run_good238_%s_tuned_mcc_perrun.tree", tag)
+pc_file    <- sprintf("data/mini_character_good238_srvf_%s.nex", tag)
+log_prefix <- sprintf("simple_run_good238_%s_tuned", tag)
+```
+
+## 0. Run status — read this before interpreting anything
+
+```{r status}
+cat(sprintf("Tree: good238 SRVF-%s PC, tuned FBD (FBD_tuned.Rev), 238 post-QC types.\n\n", tag))
+cat("Both runs were killed by the 72h walltime at 93-96%% of their 2,000,000\n")
+cat("generations, after a 50,000-generation burnin. That truncation is immaterial.\n\n")
+cat("The FBD machinery converged well in BOTH runs:\n")
+cat("  psi off zero (~0.006, matching the value the data imply) -- the corrected\n")
+cat("  dnExponential(100) prior worked; diversification/turnover ESS ~10-20k;\n")
+cat("  origin_time clear of its 4000 BP ceiling.\n")
+cat("  BUT cor(diversification, turnover) ~ -0.93 to -0.95: the lambda=mu ridge was\n")
+cat("  rotated into well-sampling coordinates, NOT removed. Quote net diversification\n")
+cat("  and turnover; never lambda and mu separately (they are ':=' deterministic).\n\n")
+if (tag == "76") {
+  cat("*** THIS (76 PC) TREE IS COMPROMISED ***\n")
+  cat("sigma2 is pinned against the 1e-3 floor of dnLoguniform(1e-3, 1): ~90%% of the\n")
+  cat("posterior lies within 1%% of the bound, across only ~312 distinct values. The BM\n")
+  cat("rate is set by the PRIOR, not estimated from the data -- PCs 39-76 carry little\n")
+  cat("variance and drag the single shared rate under the floor. Section 10 quantifies\n")
+  cat("this. Treat branch-length/rate statements here as unsupported.\n\n")
+  cat("NOTE the trap: 76 PC sigma2 shows ESS ~10,700 and PSRF ~1.01, which LOOKS like\n")
+  cat("excellent mixing. A parameter welded to a boundary is near-constant, and\n")
+  cat("near-constant parameters yield flattering ESS/PSRF. Do not read that as health.\n")
+} else {
+  cat("This (38 PC) tree is the one to use. sigma2 is low but genuinely estimated and\n")
+  cat("clear of the floor (min 0.00112 vs floor 0.001, 4,791 distinct values). Its\n")
+  cat("ESS ~70 / PSRF ~1.08 is a real caveat -- slow mixing in that one parameter --\n")
+  cat("but it is a lesser problem than the 76 PC truncation, and it does not undermine\n")
+  cat("topology or chronology, which rest on parameters that sampled well.\n")
+}
+```
+
+## 1. Read the tree
+
+```{r read}
+tr  <- read.beast(file.path(run_dir, tree_file))
+phy <- as.phylo(tr)
+tr
+```
+
+## 2. Tip metadata (clade = shape class, origin = Greek/Italiote)
+
+```{r meta}
+# good238 is the post-QC subset of the 297, so the 297 selection table is the
+# metadata source; the join is filtered to whatever tips this tree actually has.
+sel <- read.csv(file.path(params$repo_dir, params$selected_file), stringsAsFactors = FALSE)
+stopifnot("tips missing from selected_taxa" = all(phy$tip.label %in% sel$type))
+meta <- tibble::tibble(label = phy$tip.label) |>
+  left_join(sel |> transmute(label = type, shape_general, shape, place,
+              year = round((date_earliest + date_latest) / 2)), by = "label") |>
+  mutate(clade = case_when(
+           shape_general == "pelike"        ~ "pelike",
+           shape_general == "loutrophoros"  ~ "loutrophoros",
+           grepl("panathenaic", shape)      ~ "panathenaic",
+           grepl("neck", shape)             ~ "neck",
+           grepl("belly", shape)            ~ "belly",
+           TRUE                             ~ "amphora (other)"),
+         origin = ifelse(place == "greek_italiote", "Italiote", "Greek"),
+         id = sub(".*_([0-9]+)$", "\\1", label),
+         tip_label = sprintf("%s %s %d BCE (%s)", origin, clade, -year, id))
+stopifnot(!any(is.na(meta$clade)))
+pal_clade <- c(neck = "grey45", belly = "#B2182B", `amphora (other)` = "grey70",
+               pelike = "#E69F00", panathenaic = "#56B4E9", loutrophoros = "#009E73")
+knitr::kable(meta |> count(clade, origin) |> pivot_wider(names_from = origin, values_from = n, values_fill = 0))
+```
+
+## 3. Time axis (absolute chronology)
+
+MCC branch lengths are relative (youngest tip at 0); we anchor on the youngest
+tip's age from `mini_taxa_good238.tsv` and read the axis in calendar years.
+(Anchor uncertainty is not propagated here — it narrows intervals slightly.)
+
+```{r axis}
+tax <- read.delim(file.path(params$repo_dir, params$taxa_file))
+depth       <- ape::node.depth.edgelength(phy)
+root_offset <- max(depth)
+rel_age     <- root_offset - depth
+anchor_bp   <- min((tax$min_age + tax$max_age) / 2)     # youngest tip (BP)
+node_year   <- (params$bp_zero - anchor_bp) - rel_age
+root_year   <- node_year[ape::Ntip(phy) + 1]
+cat(sprintf("Youngest tip ~ %.0f BCE ; Root ~ %.0f BCE (tree height %.0f yr)\n",
+            params$bp_zero - anchor_bp, -root_year, root_offset))
+p <- ggtree(tr, size = 0.3) %<+% meta
+time_axis <- function(headroom = 0.55, left = 0) {
+  scale_x_continuous(
+    limits = c(min(0, left), root_offset * (1 + headroom)),
+    breaks = scales::breaks_pretty(6)(c(min(0, left), root_offset)),
+    labels = function(x) { yr <- round(x + root_year)
+      ifelse(yr < 0, paste0(abs(yr), " BCE"), ifelse(yr == 0, "0", paste0(yr, " CE"))) })
+}
+```
+
+## 4. Plot 1 — MCC tree, node labels = posterior support
+
+```{r plot1, fig.width=params$fig_w, fig.height=params$fig_h}
+p +
+  geom_tiplab(aes(label = tip_label, colour = clade), size = 1.1, offset = 6, show.legend = FALSE) +
+  geom_tippoint(aes(colour = clade, shape = origin), size = 1.4) +
+  geom_text2(aes(subset = !isTip & !is.na(posterior) & posterior >= params$support_cutoff,
+                 label = sprintf("%.2f", posterior)), hjust = 1.2, vjust = -0.5,
+             size = 1.3, colour = "grey30") +
+  scale_colour_manual(values = pal_clade, name = "Clade") +
+  scale_shape_manual(values = c(Greek = 16, Italiote = 17), name = "Origin") +
+  theme_tree2() + coord_cartesian(clip = "off") +
+  labs(x = NULL, title = sprintf("good238 SRVF-%s tuned: MCC, node labels = posterior (>= %.2f)", tag, params$support_cutoff)) +
+  time_axis()
+```
+
+## 5. Plot 2 — 95% HPD on node ages (needs the thinned posterior trees)
+
+The six `*_run_N.trees` posteriors (~175 MB each) were deliberately left on the
+HPC by `pull_good238_tuned.sh`. This section runs only if thinned copies are
+present locally; otherwise it skips and every later section still works.
+
+To enable it: `sh pull_good238_tuned.sh --trees`, then thin to
+`runs/thin_good238_<tag>_tuned_run_<r>.trees`.
+
+```{r abs-hpd}
+thin_files <- file.path(runs_dir, sprintf("thin_good238_%s_tuned_run_%d.trees", tag, 1:3))
+have_thin  <- all(file.exists(thin_files))
+if (!have_thin) {
+  cat("Thinned posterior trees not found locally — skipping the HPD section.\n")
+  cat("Missing:\n"); cat(paste(" ", basename(thin_files), collapse = "\n"), "\n")
+} else {
+  read_thin <- function(f) {
+    L <- readLines(f)[-1]
+    read.tree(text = gsub("\\[[^]]*\\]", "", sub("^([^\t]*\t){4}", "", L)))
+  }
+  trees <- do.call(c, lapply(thin_files, read_thin))
+  b <- floor(length(trees) * params$burnin); trees <- trees[(b + 1):length(trees)]
+  canon <- sort(phy$tip.label)
+  ckey  <- function(t, ix) paste(sort(match(t$tip.label[ix], canon)), collapse = ",")
+  acc <- new.env(hash = TRUE, parent = emptyenv())
+  for (ts in trees) {
+    dd <- node.depth.edgelength(ts); pp <- prop.part(ts)
+    ages <- (max(dd) - dd)[ape::Ntip(ts) + seq_along(pp)] + anchor_bp   # fixed anchor
+    for (i in seq_along(pp)) { k <- ckey(ts, pp[[i]]); acc[[k]] <- c(acc[[k]], ages[i]) }
+  }
+  hdi <- function(x, prob = 0.95) { x <- sort(x); n <- length(x); m <- max(1, floor(n * prob))
+    i <- which.min(x[m:n] - x[1:(n - m + 1)]); c(x[i], x[i + m - 1]) }
+  ntip <- ape::Ntip(phy); mcc_pp <- prop.part(phy)
+  node_hpd <- lapply(seq_along(mcc_pp), function(i) {
+    a <- acc[[ckey(phy, mcc_pp[[i]])]]; if (is.null(a) || length(a) < 2) return(NULL)
+    tibble::tibble(node = ntip + i, freq = length(a) / length(trees),
+                   med = median(a), lo = hdi(a)[1], hi = hdi(a)[2]) }) |> bind_rows()
+}
+```
+
+```{r plot2, fig.width=params$fig_w, fig.height=params$fig_h, eval=have_thin}
+bp_to_x <- function(bp) (params$bp_zero - bp) - root_year
+bars <- node_hpd |> left_join(p$data |> select(node, y), by = "node") |>
+  mutate(x_lo = bp_to_x(hi), x_hi = bp_to_x(lo), x_med = bp_to_x(med))
+p +
+  geom_segment(data = bars, aes(x = x_lo, xend = x_hi, y = y, yend = y, alpha = freq),
+               linewidth = 1.5, colour = "#377EB8", lineend = "round") +
+  geom_point(data = bars, aes(x = x_med, y = y), size = 0.5, colour = "grey20") +
+  geom_tiplab(aes(label = tip_label, colour = clade), size = 1.0, offset = 6, show.legend = FALSE) +
+  scale_colour_manual(values = pal_clade, guide = "none") +
+  scale_alpha_continuous(range = c(0.15, 0.9), name = "clade freq") +
+  theme_tree2() + coord_cartesian(clip = "off") +
+  labs(title = "95% HPD on node ages; opacity = clade frequency in the posterior") +
+  time_axis(headroom = 0.75, left = min(bars$x_lo, 0))
+```
+
+The MCC tree itself still carries per-node `age_95%_HPD` annotations from
+RevBayes, so node-age uncertainty is available even without this section:
+
+```{r mcc-hpd-summary}
+# treeio renames the NEXUS "age_95%_HPD" annotation (it appears as age_0.95_HPD),
+# so find the column rather than hardcoding a name that varies by version.
+d   <- as_tibble(tr)
+hpd <- grep("HPD", names(d), value = TRUE)[1]
+if (is.na(hpd)) {
+  cat("No node-age HPD annotation found on this tree.\n")
+} else {
+  v <- d[[hpd]]
+  ok <- vapply(v, function(z) length(unlist(z)) == 2 && all(is.finite(as.numeric(unlist(z)))), logical(1))
+  w  <- vapply(v[ok], function(z) diff(range(as.numeric(unlist(z)))), numeric(1))
+  cat(sprintf("column '%s': %d annotated nodes\n", hpd, sum(ok)))
+  cat(sprintf("95%% HPD width on node ages: median %.0f yr, IQR %.0f-%.0f yr, max %.0f yr\n",
+              median(w), quantile(w, .25), quantile(w, .75), max(w)))
+}
+```
+
+## 6. Plot 3 — support as node size
+
+```{r plot3, fig.width=params$fig_w, fig.height=params$fig_h}
+p +
+  geom_nodepoint(aes(size = as.numeric(posterior)), colour = "grey25", alpha = 0.7, na.rm = TRUE) +
+  geom_tippoint(aes(colour = clade, shape = origin), size = 1.3) +
+  geom_tiplab(aes(label = tip_label, colour = clade), size = 1.0, offset = 6, show.legend = FALSE) +
+  scale_size_continuous(range = c(0.2, 3.5), name = "Posterior", limits = c(0, 1)) +
+  scale_colour_manual(values = pal_clade, name = "Clade") +
+  scale_shape_manual(values = c(Greek = 16, Italiote = 17), name = "Origin") +
+  theme_tree2() + coord_cartesian(clip = "off") +
+  labs(title = "Clade support (node-point size)") + time_axis()
+```
+
+```{r support-dist, fig.width=8, fig.height=3.2}
+sup <- as_tibble(tr) |> filter(!is.na(posterior)) |> mutate(posterior = as.numeric(posterior))
+cat(sprintf("internal nodes with posterior >= 0.95: %d / %d (%.1f%%);  >= 0.50: %d (%.1f%%)\n",
+            sum(sup$posterior >= .95), nrow(sup), 100*mean(sup$posterior >= .95),
+            sum(sup$posterior >= .50), 100*mean(sup$posterior >= .50)))
+ggplot(sup, aes(posterior)) +
+  geom_histogram(bins = 40, fill = "#377EB8", colour = "white", linewidth = .2) +
+  geom_vline(xintercept = c(.5, .95), linetype = 2, colour = "grey40") +
+  theme_bw() + labs(title = sprintf("good238 SRVF-%s: distribution of node support", tag),
+                    x = "posterior probability", y = "nodes")
+```
+
+## 7. Plot 4 — pot profiles at the tips, filled by clade
+
+```{r profiles}
+prof_all <- read.csv(file.path(params$data_dir, params$profile_file))
+stopifnot(all(phy$tip.label %in% prof_all$type))
+tipxy <- p$data |> filter(isTip) |> select(label, tx = x, ty = y)
+headroom <- 0.75
+k  <- (root_offset * (1 + headroom) / ape::Ntip(phy)) * (params$fig_h / params$fig_w)
+sy <- params$pot_height / 3; sx <- sy * k * params$pot_stretch
+pots <- prof_all |> filter(type %in% phy$tip.label) |>
+  select(label = type, point_order, px = x, py = y) |>
+  left_join(tipxy, by = "label") |> left_join(select(meta, label, clade), by = "label") |>
+  arrange(label, point_order) |>
+  mutate(x = tx + params$pot_offset * root_offset + px * sx, y = ty + py * sy)
+pot_span <- max(abs(prof_all$x)) * sx
+```
+
+```{r plot4, fig.width=params$fig_w, fig.height=params$fig_h}
+# darker label palette (the amber pelike #E69F00 is barely legible on white)
+pal_label <- pal_clade; pal_label["pelike"] <- "#8a6a00"
+tiplab <- distinct(pots, label, tx, ty) |> left_join(meta, by = "label") |>
+  mutate(txt = sprintf("%s | %s | %d BCE | #%s", clade, origin, -year, id))
+p4 <- p +
+  # period-transition guides (relative-x = calendar year - root_year)
+  geom_vline(xintercept = c(-480 - root_year, -330 - root_year),
+             linetype = "dotted", colour = "grey55", linewidth = 0.4) +
+  annotate("text", x = c(-480 - root_year, -330 - root_year), y = ape::Ntip(phy) + 2,
+           label = c("480 BCE  Archaic/Classical", "330 BCE  Classical/Hellenistic"),
+           size = 2.3, colour = "grey45", hjust = 0, vjust = 0) +
+  geom_polygon(data = pots, aes(x = x, y = y, group = label, fill = clade),
+               colour = "grey25", linewidth = 0.15) +
+  geom_tippoint(size = 0.6, colour = "grey30") +
+  # ALL internal-node posterior supports (not just >= cutoff)
+  geom_text2(aes(subset = !isTip & !is.na(posterior),
+                 label = sprintf("%.2f", as.numeric(posterior))),
+             size = 1.3, colour = "grey35", hjust = 1.15, vjust = -0.4) +
+  # per-tip label: class | origin | date | #id, coloured by clade
+  geom_text(data = tiplab,
+            aes(x = tx + params$pot_offset * root_offset + 1.35 * pot_span, y = ty,
+                label = txt, colour = clade),
+            hjust = 0, size = 1.9, show.legend = FALSE) +
+  scale_fill_manual(values = pal_clade, name = "Clade") +
+  scale_colour_manual(values = pal_label, guide = "none") +
+  theme_tree2() + coord_cartesian(clip = "off") +
+  theme(plot.margin = margin(4, 430, 4, 4)) +
+  labs(title = sprintf("good238 SRVF-%s tuned: profiles + all node supports + labels (class | origin | date | #id)", tag)) +
+  time_axis(headroom = headroom)
+# high-resolution vector PDF (zoom as far as needed to read labels)
+ggsave(file.path(run_dir, sprintf("tree_profiles_labelled_good238_%s_tuned.pdf", tag)),
+       p4, device = cairo_pdf, width = 22, height = params$fig_h, limitsize = FALSE)
+p4
+```
+
+## 8. Plot 5 — pots filled by measured shape (PC1), outlined by clade
+
+```{r read-pcs}
+parse_cont_nex <- function(f) {
+  L <- readLines(f); L <- L[grepl("^[[:space:]]+[^[:space:]]+[[:space:]]+-?[0-9]", L)]
+  parts <- strsplit(trimws(L), "[[:space:]]+"); tx <- vapply(parts, `[`, "", 1)
+  vals <- lapply(parts, function(p) as.numeric(p[-1])); ord <- unique(tx)
+  out <- t(vapply(ord, function(t) unlist(vals[tx == t]),
+                  numeric(length(unlist(vals[tx == ord[1]])))))
+  colnames(out) <- paste0("PC", seq_len(ncol(out))); rownames(out) <- ord; out
+}
+pcs  <- parse_cont_nex(file.path(params$repo_dir, pc_file))
+pcdf <- tibble::as_tibble(pcs[, 1:min(5, ncol(pcs))], rownames = "label")
+aspect <- sapply(pcdf$label, function(t) {
+  s <- filter(prof_all, type == t); (max(s$y) - min(s$y)) / (max(s$x) - min(s$x)) })
+r_pc1 <- cor(pcdf$PC1, aspect)
+cat(sprintf("cor(PC1, height/width) = %.2f\n", r_pc1))
+if (r_pc1 < 0) { pcs[, "PC1"] <- -pcs[, "PC1"]; pcdf$PC1 <- -pcdf$PC1 }
+```
+
+```{r plot5, fig.width=params$fig_w, fig.height=params$fig_h}
+pots_pc <- pots |> left_join(pcdf |> select(label, PC1), by = "label")
+p +
+  geom_polygon(data = pots_pc, aes(x = x, y = y, group = label, fill = PC1, colour = clade),
+               linewidth = 0.4) +
+  scale_fill_gradient2(low = "#56B4E9", mid = "grey93", high = "#E69F00", midpoint = 0,
+                       name = "PC1\n(squat -> slender)") +
+  scale_colour_manual(values = pal_clade, name = "Clade") +
+  guides(colour = guide_legend(override.aes = list(fill = NA, linewidth = 1.2))) +
+  theme_tree2() + coord_cartesian(clip = "off") +
+  labs(title = "Fill = measured shape (PC1); outline = clade") +
+  time_axis(headroom = headroom)
+```
+
+```{r morphospace, fig.width=8, fig.height=7}
+msp <- pcdf |> left_join(meta, by = "label")
+ggplot(msp, aes(PC1, PC2)) +
+  geom_hline(yintercept = 0, colour = "grey85") + geom_vline(xintercept = 0, colour = "grey85") +
+  geom_point(aes(fill = clade, shape = origin), size = 2.4, colour = "grey25", stroke = 0.3) +
+  scale_fill_manual(values = pal_clade, name = "Clade") +
+  scale_shape_manual(values = c(Greek = 21, Italiote = 24), name = "Origin") +
+  guides(fill = guide_legend(override.aes = list(shape = 21))) +
+  theme_bw() + labs(title = sprintf("Morphospace of the good-238 types, SRVF-%s (PC1 = squat<->slender)", tag))
+```
+
+## 9. Posterior parameters & traces
+
+The tuned model samples `diversification` and `turnover`; `speciation_rate` and
+`extinction_rate` are deterministic (`:=`) functions of them and are logged but
+must not be interpreted individually.
+
+```{r params-post}
+logs <- list.files(run_dir, pattern = sprintf("^%s_run_[0-9]+\\.log$", log_prefix), full.names = TRUE)
+stopifnot("no run logs found" = length(logs) > 0)
+sampled <- c("diversification", "turnover", "psi", "sigma2", "origin_time")
+derived <- c("speciation_rate", "extinction_rate")
+post <- rbindlist(lapply(seq_along(logs), function(i) {
+  d <- fread(logs[i], select = c("Iteration", sampled, derived))
+  d <- d[(floor(.N * params$burnin) + 1):.N]; d$run <- factor(i); d }))
+# chains stopped at different generations (walltime kill) -> common window
+common <- post[, min(max(Iteration)), by = run][, min(V1)]
+post <- post[Iteration <= common]
+cat(sprintf("common generation window: 0-%s (%.1f%% of the 2,000,000 target)\n",
+            format(common, big.mark = ","), common / 2e6 * 100))
+post |> select(all_of(c(sampled, derived))) |> pivot_longer(everything()) |> group_by(name) |>
+  summarise(median = median(value), lower = quantile(value, .025),
+            upper = quantile(value, .975)) |>
+  mutate(interpret = ifelse(name %in% derived, "DETERMINISTIC — do not report", "sampled")) |>
+  knitr::kable(digits = 5)
+```
+
+```{r trace, fig.height=6, fig.width=10}
+post |> select(Iteration, run, all_of(sampled)) |> pivot_longer(all_of(sampled)) |>
+  ggplot(aes(Iteration, value, colour = run)) +
+  geom_line(alpha = 0.6, linewidth = 0.25) + facet_wrap(~name, scales = "free_y") +
+  scale_colour_brewer(palette = "Dark2") + theme_bw() +
+  labs(title = sprintf("good238 SRVF-%s tuned: traces of the sampled parameters", tag), y = NULL)
+```
+
+## 10. MCMC diagnostics (ESS / PSRF) and the sigma2 boundary check
+
+```{r ess}
+library(coda)
+allp <- c("origin_time", "sigma2", "diversification", "turnover", "psi")
+runs <- split(post, post$run)
+nmin <- min(sapply(runs, nrow))
+runs <- lapply(runs, function(d) d[seq_len(nmin)])
+ess  <- sapply(runs, function(d) sapply(d[, ..allp], \(x) coda::effectiveSize(as.mcmc(x))))
+psrf <- coda::gelman.diag(coda::mcmc.list(lapply(runs, \(d) as.mcmc(as.matrix(d[, ..allp])))),
+                          multivariate = FALSE, autoburnin = FALSE)$psrf
+tibble::tibble(parameter = allp, run1 = round(ess[, 1]), run2 = round(ess[, 2]),
+               run3 = round(ess[, 3]), psrf = round(psrf[allp, 1], 3)) |>
+  arrange(pmin(run1, run2, run3)) |> knitr::kable()
+cat(sprintf("\ncor(diversification, turnover) = %.4f  (ridge rotated, not removed)\n",
+            cor(post$diversification, post$turnover)))
+cat(sprintf("cor(lambda, mu) = %.4f  (deterministic; quote net-div/turnover)\n",
+            cor(post$speciation_rate, post$extinction_rate)))
+```
+
+**The boundary check that the ESS table cannot show.** A parameter welded to a
+prior bound is near-constant, and near-constant parameters return excellent ESS
+and PSRF. So test the bound directly:
+
+```{r sigma2-floor}
+s  <- post$sigma2; fl <- params$sigma2_floor
+pct1 <- 100 * mean(s < fl * 1.01); pct10 <- 100 * mean(s < fl * 1.10)
+cat(sprintf("sigma2: min %.6f  median %.6f  max %.6f   (floor %.4f)\n", min(s), median(s), max(s), fl))
+cat(sprintf("  within  1%% of the floor: %5.1f%%\n", pct1))
+cat(sprintf("  within 10%% of the floor: %5.1f%%\n", pct10))
+cat(sprintf("  distinct values: %d of %d samples\n", length(unique(round(s, 7))), length(s)))
+cat(sprintf("  -> %s\n", if (pct1 > 50)
+  "PINNED. The BM rate is set by the prior, not the data. Branch-rate statements are unsupported; lower the floor (e.g. dnLoguniform(1e-6, 1)) and rerun."
+  else if (pct10 > 5) "close to the floor — watch it, but genuinely estimated"
+  else "clear of the floor — genuinely estimated"))
+```
+
+```{r ridge, fig.width=10, fig.height=4}
+pal_run <- c(`1` = "#E69F00", `2` = "#56B4E9", `3` = "#009E73")
+library(patchwork)
+# NB: coord_equal is applied to this single plot only, then composed with
+# patchwork — never combined with facets.
+pa <- ggplot(post, aes(diversification, turnover, colour = run)) +
+  geom_point(alpha = 0.2, size = 0.5) +
+  scale_colour_manual(values = pal_run) + theme_bw() +
+  labs(title = "diversification vs turnover (sampled)")
+pb <- ggplot(post, aes(Iteration, sigma2, colour = run)) +
+  geom_hline(yintercept = fl, linetype = 2, colour = "red") +
+  annotate("text", x = min(post$Iteration), y = fl, label = " prior floor",
+           hjust = 0, vjust = -0.6, size = 3, colour = "red") +
+  geom_line(alpha = 0.7, linewidth = 0.25) +
+  scale_colour_manual(values = pal_run) + theme_bw() +
+  labs(title = "sigma2 trace vs its prior floor", y = NULL)
+pa | pb
+```
