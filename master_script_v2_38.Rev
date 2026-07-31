@@ -1,0 +1,7 @@
+# v2 Greek/Italiote tree, SRVF-38 PC -- FRESH run.
+# 330 taxa; FBD_tuned + strict_clock_v2 (sigma2 floor 1e-6) + checkpointing.
+# Resume after a walltime kill with master_script_v2_38_restart.Rev.
+NPC     = 38
+TAG     = "v2_38"
+RESTART = FALSE
+source("amphora-phylogeny/scripts/v2_body.Rev")

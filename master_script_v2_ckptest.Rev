@@ -1,0 +1,18 @@
+# CHECKPOINT SMOKE TEST -- run this BEFORE committing a multi-day job.
+#
+# Nothing in this repo has ever used RevBayes checkpointing, and mcmcmc
+# checkpoint/restart is fussier than plain mcmc (heated-chain state, per-run
+# files). This is a 2-minute version of the real config on the real data: same
+# model, same monitors, same mcmcmc geometry, 3000 generations.
+#
+#   1. qsub submit_hpc_v2_ckptest.pbs           -> writes checkpoint_v2_ckptest.state
+#   2. qsub submit_hpc_v2_ckptest_restart.pbs   -> must RESUME, not restart
+#
+# PASS if the restart log shows it continuing past generation 3000 rather than
+# beginning at 1, and output/simple_run_v2_ckptest.log GREW rather than being
+# truncated back to its first sample.  If it fails, fix it here, not at 72h.
+NPC     = 38
+TAG     = "v2_ckptest"
+RESTART = FALSE
+GENS    = 3000
+source("amphora-phylogeny/scripts/v2_body_ckptest.Rev")

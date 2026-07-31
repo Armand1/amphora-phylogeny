@@ -1,0 +1,17 @@
+#!/bin/sh
+#PBS -l walltime=00:30:00
+#PBS -l select=1:ncpus=25:mem=64gb
+#PBS -N v2ckp
+
+# Checkpoint smoke test -- see master_script_v2_ckptest.Rev. Run the plain one
+# first, then the _restart one, and check the restart RESUMES.
+cd "$HOME/GitHub" || exit 1
+mkdir -p "amphora-phylogeny/output"
+LOGFILE="amphora-phylogeny/output/logfile_v2_ckptest.log"
+PROGRAM="$HOME/revbayes/projects/cmake/build-mpi/rb-mpi"
+module load tools/dev; module load tools/prod; module load OpenMPI; module load GCC/14.3.0
+mpirun -np 25 --map-by :OVERSUBSCRIBE ${PROGRAM} \
+       "amphora-phylogeny/master_script_v2_ckptest.Rev" > ${LOGFILE} 2>&1
+echo "--- checkpoint files ---" >> ${LOGFILE}
+ls -la amphora-phylogeny/output/checkpoint_v2_ckptest* >> ${LOGFILE} 2>&1
+wc -l amphora-phylogeny/output/simple_run_v2_ckptest*.log >> ${LOGFILE} 2>&1

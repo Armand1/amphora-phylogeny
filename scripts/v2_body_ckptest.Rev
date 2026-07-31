@@ -1,0 +1,63 @@
+# =============================================================================
+# Shared body for the v2 Greek/Italiote runs.  The caller sets:
+#     NPC      number of SRVF tangent-PCA characters (38 or 45)
+#     TAG      output tag, e.g. "v2_38"
+#     RESTART  FALSE for a fresh job, TRUE to resume from a checkpoint
+# and then sources this file.  One body, four thin master scripts -- avoids the
+# copy-paste sprawl the earlier configs accumulated, without changing the
+# one-script-per-config convention the PBS paths depend on.
+#
+# Dataset: 330 taxa = 323 types (amphora 199 + hydria 95 + stamnos 29) + 7 SOS
+# vases, built at 'Making amphora types/08_2026_greek_italiote_v2/'.
+# The tangent-PCA basis is recomputed on this taxon set, so its PC axes are NOT
+# the good-238 axes; the trees are not comparable coordinate-for-coordinate.
+# =============================================================================
+BASE = "amphora-phylogeny"
+OUTPUT_DIR = BASE + "/output/simple_run_" + TAG
+CKP = BASE + "/output/checkpoint_" + TAG + ".state"
+
+morpho <- readContinuousCharacterData(BASE + "/data/mini_character_v2_srvf_" + NPC + ".nex")
+taxa   <- readTaxonData(BASE + "/data/mini_taxa_v2.tsv")
+
+for (i in 1:taxa.size()) { ages[i] = taxa[i].getMaxAge() }
+max_age = max(ages)
+
+trait <- 1:NPC
+morpho.excludeAll()
+morpho.includeCharacter( trait )
+
+moves = VectorMoves()
+
+source(BASE + "/scripts/FBD_tuned.Rev")
+source(BASE + "/scripts/strict_clock_v2.Rev")   # sigma2 floor 1e-6, not 1e-3
+source(BASE + "/scripts/simple_BM.Rev")
+
+mymodel = model(sigma2)
+
+# On a restart the monitors MUST append, or the resumed job silently truncates
+# every sample the previous job wrote.
+monitors = VectorMonitors()
+monitors.append( mnModel(filename=(OUTPUT_DIR + ".log"), printgen=50,
+                         append=RESTART) )
+monitors.append( mnExtNewick(filename=(OUTPUT_DIR + ".trees"), isNodeParameter=TRUE,
+                             printgen=50, separator=TAB, tree=fbd_tree,
+                             append=RESTART) )
+monitors.append( mnScreen(printgen=500, sigma2, origin_time, diversification, turnover) )
+
+mymcmcmc = mcmcmc(mymodel, monitors, moves, nchains=8, nruns=3, tuneHeat=TRUE,
+                  combine="mixed")
+
+if (RESTART) {
+    mymcmcmc.initializeFromCheckpoint(CKP)
+} else {
+    mymcmcmc.burnin(generations=200, tuningInterval=200)
+}
+
+# The generation target is deliberately far beyond one wall.  With checkpointing
+# the wall is no longer the thing that decides when we stop -- ASDSF is.  Run to
+# the wall, resubmit the _restart config, repeat until the split diagnostic
+# settles.  2M was calibrated for 238 tips; 330 tips explore a larger tree space
+# and need more, not the same.
+mymcmcmc.run(generations=GENS, checkpointInterval=500, checkpointFile=CKP)
+
+q()

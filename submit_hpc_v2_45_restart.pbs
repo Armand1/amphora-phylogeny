@@ -1,0 +1,24 @@
+#!/bin/sh
+#PBS -l walltime=72:00:00
+#PBS -l select=1:ncpus=25:mem=64gb
+#PBS -N v2_45_restart
+
+# v2 Greek/Italiote, SRVF-45 PC. 330 taxa, mcmcmc(8x3)=24 chains -> 25 ranks.
+# mem raised 32->64gb: 330 taxa is ~1.4x the good-238 tree that filled 32gb.
+# Checkpoints every 20k gens to output/checkpoint_v2_45.state, so a walltime
+# kill costs at most ~1h of sampling -- resubmit submit_hpc_v2_45_restart.pbs
+# to carry on. Watch the first minute of the log for a move/parse error.
+cd "$HOME/GitHub" || { echo "ERROR: cd $HOME/GitHub failed"; exit 1; }
+mkdir -p "amphora-phylogeny/output"
+LOGFILE="amphora-phylogeny/output/logfile_v2_45_restart.log"
+PROGRAM="$HOME/revbayes/projects/cmake/build-mpi/rb-mpi"
+[ -x "$PROGRAM" ] || { echo "ERROR: RevBayes not found at $PROGRAM"; exit 1; }
+SECONDS=0
+echo "INFO:Starting        "`date`   > ${LOGFILE}
+echo "INFO:Node Used       "`hostname` >> ${LOGFILE}
+module load tools/dev; module load tools/prod; module load OpenMPI; module load GCC/14.3.0
+mpirun -np 25 --map-by :OVERSUBSCRIBE ${PROGRAM} \
+       "amphora-phylogeny/master_script_v2_45_restart.Rev" >> ${LOGFILE} 2>&1
+dur=$SECONDS
+echo "INFO:Finishing       "`date`   >> ${LOGFILE}
+echo "INFO:Time_Taken_(H:M:S) : $((dur/3600)):$(((dur%3600)/60)):$((dur%60))" >> ${LOGFILE}

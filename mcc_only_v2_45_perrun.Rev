@@ -1,0 +1,17 @@
+# MCC for v2_45 from the three per-run trace files.
+#
+# Always use this rather than a combined-trace version: mcmcmc(combine="mixed")
+# only writes the combined .trees on a clean finish, and a checkpointed run that
+# is stopped at the wall by design never has one. Reading _run_1/2/3 works
+# either way. thinning=20 guards the MCC teardown OOM that killed the all-297
+# summary at 120k trees.
+BASE = "amphora-phylogeny"
+OUTPUT_DIR = BASE + "/output/simple_run_v2_45"
+
+files = [OUTPUT_DIR + "_run_1.trees",
+         OUTPUT_DIR + "_run_2.trees",
+         OUTPUT_DIR + "_run_3.trees"]
+
+trace = readTreeTrace(files, burnin=0.1, thinning=20)
+mccTree(trace, file=(OUTPUT_DIR + "_mcc_perrun.tree"))
+q()

@@ -1,0 +1,8 @@
+# v2 Greek/Italiote tree, SRVF-45 PC -- RESUME from checkpoint.
+# Identical to master_script_v2_45.Rev except RESTART=TRUE, which skips
+# burnin, reloads chain state, and makes the monitors APPEND rather than
+# overwrite. Submit as many times as ASDSF requires.
+NPC     = 45
+TAG     = "v2_45"
+RESTART = TRUE
+source("amphora-phylogeny/scripts/v2_body.Rev")

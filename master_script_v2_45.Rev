@@ -1,0 +1,7 @@
+# v2 Greek/Italiote tree, SRVF-45 PC -- FRESH run.
+# 330 taxa; FBD_tuned + strict_clock_v2 (sigma2 floor 1e-6) + checkpointing.
+# Resume after a walltime kill with master_script_v2_45_restart.Rev.
+NPC     = 45
+TAG     = "v2_45"
+RESTART = FALSE
+source("amphora-phylogeny/scripts/v2_body.Rev")
