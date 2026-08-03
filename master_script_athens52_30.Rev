@@ -1,0 +1,4 @@
+# Athens-52 demonstration tree, SRVF-30 PC.
+NPC = 30
+TAG = "athens52_30"
+source("amphora-phylogeny/scripts/athens52_body.Rev")

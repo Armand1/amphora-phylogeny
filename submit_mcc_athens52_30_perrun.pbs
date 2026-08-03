@@ -1,0 +1,9 @@
+#!/bin/sh
+#PBS -l walltime=01:00:00
+#PBS -l select=1:ncpus=4:mem=16gb
+#PBS -N ath52_30_mcc
+cd "$HOME/GitHub" || exit 1
+module load tools/dev; module load tools/prod; module load OpenMPI; module load GCC/14.3.0
+mpirun -np 1 "$HOME/revbayes/projects/cmake/build-mpi/rb-mpi" \
+  "amphora-phylogeny/mcc_only_athens52_30_perrun.Rev" \
+  > "amphora-phylogeny/output/mcc_logfile_athens52_30.log" 2>&1

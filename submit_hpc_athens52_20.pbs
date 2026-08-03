@@ -1,0 +1,18 @@
+#!/bin/sh
+#PBS -l walltime=12:00:00
+#PBS -l select=1:ncpus=25:mem=16gb
+#PBS -N ath52_20
+
+# Athens-52, SRVF-20 PC. 52 tips, mcmcmc(8x3)=24 chains -> 25 ranks, 1M gens.
+# Small tree: expect well under the wall, so no restart machinery needed.
+cd "$HOME/GitHub" || { echo "ERROR: cd failed"; exit 1; }
+mkdir -p "amphora-phylogeny/output"
+LOGFILE="amphora-phylogeny/output/logfile_athens52_20.log"
+PROGRAM="$HOME/revbayes/projects/cmake/build-mpi/rb-mpi"
+[ -x "$PROGRAM" ] || { echo "ERROR: RevBayes not found"; exit 1; }
+SECONDS=0
+echo "INFO:Starting  "`date` > ${LOGFILE}
+module load tools/dev; module load tools/prod; module load OpenMPI; module load GCC/14.3.0
+mpirun -np 25 --map-by :OVERSUBSCRIBE ${PROGRAM} \
+       "amphora-phylogeny/master_script_athens52_20.Rev" >> ${LOGFILE} 2>&1
+echo "INFO:Time $((SECONDS/3600)):$(((SECONDS%3600)/60)):$((SECONDS%60))" >> ${LOGFILE}
